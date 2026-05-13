@@ -299,7 +299,16 @@ export async function POST(req: NextRequest) {
       const googleResult = await fetchGoogleBooks(searchQuery);
       if (googleResult) {
         bookData = await enrichWithIsbn(googleResult);
+        // Google BooksでISBNが取れなかった場合はNDLでも検索する
+        if (!bookData.isbn) {
+          const ndlResult = await fetchNdlByTitle(title as string, authorList[0]);
+          if (ndlResult?.isbn) {
+            // NDLでISBNが取れたらそちらを優先（OpenBDで補完）
+            bookData = await enrichWithIsbn(ndlResult);
+          }
+        }
       }
+      // Google Booksで見つからない場合はNDLで検索
       if (!bookData) {
         const ndlResult = await fetchNdlByTitle(title as string, authorList[0]);
         if (ndlResult) bookData = await enrichWithIsbn(ndlResult);

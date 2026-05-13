@@ -156,7 +156,12 @@ export default function BookDetailPage() {
         publisher: found.publisher || prev.publisher,
         published_date: found.published_date || prev.published_date,
       } : prev);
-      setIsbnSearchMsg({ type: 'success', text: `「${found.title}」が見つかりました` });
+      const isbn = normalizeIsbn(found.isbn);
+      setIsbnSearchMsg(
+        isbn
+          ? { type: 'success', text: `✅ ISBN: ${isbn} が見つかりました` }
+          : { type: 'error', text: `「${found.title}」は見つかりましたが、ISBNを取得できませんでした` }
+      );
     } catch (err) {
       setIsbnSearchMsg({ type: 'error', text: err instanceof Error ? err.message : '書籍が見つかりませんでした' });
     }
@@ -351,7 +356,7 @@ export default function BookDetailPage() {
                 </div>
                 {isbnSearchMsg && (
                   <p className={`text-xs ${isbnSearchMsg.type === 'error' ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
-                    {isbnSearchMsg.type === 'error' ? '⚠️ ' : '✅ '}{isbnSearchMsg.text}
+                    {isbnSearchMsg.type === 'error' ? '⚠️ ' : ''}{isbnSearchMsg.text}
                   </p>
                 )}
                 <div className="flex flex-wrap gap-2">

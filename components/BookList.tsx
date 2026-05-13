@@ -172,7 +172,12 @@ export default function BookList() {
         publisher: found.publisher || prev.publisher,
         published_date: found.published_date || prev.published_date,
       } : prev);
-      setIsbnSearchMsg({ type: 'success', text: `「${found.title}」が見つかりました` });
+      const foundIsbn = normalizeIsbn(found.isbn);
+      setIsbnSearchMsg(
+        foundIsbn
+          ? { type: 'success', text: `✅ ISBN: ${foundIsbn} が見つかりました` }
+          : { type: 'error', text: `「${found.title}」は見つかりましたが、ISBNを取得できませんでした` }
+      );
     } catch (err) {
       setIsbnSearchMsg({ type: 'error', text: getErrorMessage(err) });
     }
@@ -457,7 +462,7 @@ export default function BookList() {
                     </div>
                     {isbnSearchMsg && editingId === book.id && (
                       <p className={`text-xs ${isbnSearchMsg.type === 'error' ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
-                        {isbnSearchMsg.type === 'error' ? '⚠️ ' : '✅ '}{isbnSearchMsg.text}
+                        {isbnSearchMsg.type === 'error' ? '⚠️ ' : ''}{isbnSearchMsg.text}
                       </p>
                     )}
                     <div className="flex flex-wrap gap-2">
