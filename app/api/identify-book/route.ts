@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import Anthropic from '@anthropic-ai/sdk';
+import OpenAI from 'openai';
 import { Book } from '@/lib/supabase';
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 interface GoogleBooksVolume {
   volumeInfo: {
@@ -54,20 +54,16 @@ async function fetchGoogleBooks(query: string): Promise<Omit<Book, 'scan_method'
 }
 
 async function identifyByAI(imageBase64: string, mimeType: string): Promise<{ title: string; authors: string[]; isbn: string | null }> {
-  const message = await anthropic.messages.create({
-    model: 'claude-haiku-4-5-20251001',
+  const message = await openai.chat.completions.create({
+    model: 'gpt-4o',
     max_tokens: 512,
     messages: [
       {
         role: 'user',
         content: [
           {
-            type: 'image',
-            source: {
-              type: 'base64',
-              media_type: mimeType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
-              data: imageBase64,
-            },
+            type: 'image_url',
+            image_url: { url: `data:${mimeType};base64,${imageBase64}`, detail: 'low' },
           },
           {
             type: 'text',
@@ -81,7 +77,7 @@ ISBNが読み取れない場合はnullにしてください。著者が不明な
     ],
   });
 
-  const text = message.content[0].type === 'text' ? message.content[0].text : '';
+  const text = message.choices[0].message.content ?? '';
   const jsonMatch = text.match(/\{[\s\S]*\}/);
   if (!jsonMatch) throw new Error('AIからの応答をパースできませんでした');
 
