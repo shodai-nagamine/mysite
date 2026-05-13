@@ -37,22 +37,27 @@ export default function BookScanner() {
 
   const toBase64 = (file: File): Promise<{ base64: string; mimeType: string }> =>
     new Promise((resolve, reject) => {
-      const img = new Image();
-      const objectUrl = URL.createObjectURL(file);
-      img.onload = () => {
-        const MAX = 1000;
-        const scale = Math.min(1, MAX / Math.max(img.width, img.height));
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.round(img.width * scale);
-        canvas.height = Math.round(img.height * scale);
-        canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height);
-        URL.revokeObjectURL(objectUrl);
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-        const [, base64] = dataUrl.split(',');
-        resolve({ base64, mimeType: 'image/jpeg' });
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('ファイルの読み込みに失敗しました'));
+      reader.onload = () => {
+        const dataUrl = reader.result as string;
+        const img = new Image();
+        img.onerror = () => reject(new Error('画像のデコードに失敗しました'));
+        img.onload = () => {
+          const MAX = 1000;
+          const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.round(img.width * scale);
+          canvas.height = Math.round(img.height * scale);
+          const ctx = canvas.getContext('2d');
+          if (!ctx) { reject(new Error('Canvas が使えません')); return; }
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          const [, base64] = canvas.toDataURL('image/jpeg', 0.85).split(',');
+          resolve({ base64, mimeType: 'image/jpeg' });
+        };
+        img.src = dataUrl;
       };
-      img.onerror = reject;
-      img.src = objectUrl;
+      reader.readAsDataURL(file);
     });
 
   const handleFile = useCallback(async (file: File) => {
@@ -117,8 +122,9 @@ export default function BookScanner() {
       setStatus('done');
       setStatusMsg('');
     } catch (err) {
+      console.error('[BookScanner]', err);
       setStatus('error');
-      setStatusMsg(err instanceof Error ? err.message : '不明なエラーが発生しました');
+      setStatusMsg(err instanceof Error ? err.message : String(err));
     }
   }, [tryBarcodeDetect]);
 
