@@ -127,7 +127,8 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ book: { ...bookData, scan_method: scanMethod } });
   } catch (err) {
-    console.error('[identify-book]', err);
-    return NextResponse.json({ error: '書籍の識別に失敗しました' }, { status: 500 });
+    const msg = err instanceof Error ? err.message : '書籍の識別に失敗しました';
+    console.error('[identify-book]', msg);
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

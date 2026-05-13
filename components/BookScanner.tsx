@@ -37,15 +37,22 @@ export default function BookScanner() {
 
   const toBase64 = (file: File): Promise<{ base64: string; mimeType: string }> =>
     new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const result = reader.result as string;
-        const [header, base64] = result.split(',');
-        const mimeType = header.match(/:(.*?);/)?.[1] ?? 'image/jpeg';
-        resolve({ base64, mimeType });
+      const img = new Image();
+      const objectUrl = URL.createObjectURL(file);
+      img.onload = () => {
+        const MAX = 1000;
+        const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height);
+        URL.revokeObjectURL(objectUrl);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+        const [, base64] = dataUrl.split(',');
+        resolve({ base64, mimeType: 'image/jpeg' });
       };
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
+      img.onerror = reject;
+      img.src = objectUrl;
     });
 
   const handleFile = useCallback(async (file: File) => {
