@@ -45,6 +45,7 @@ export default function BookDetailPage() {
   const [saving, setSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [searchingIsbn, setSearchingIsbn] = useState(false);
+  const [isbnSearchMsg, setIsbnSearchMsg] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -130,7 +131,7 @@ export default function BookDetailPage() {
     if (!title) { setError('タイトルを入力してください'); return; }
 
     setSearchingIsbn(true);
-    setError(null);
+    setIsbnSearchMsg(null);
 
     try {
       const authors = editForm.authors.split(',').map((a) => a.trim()).filter(Boolean);
@@ -139,12 +140,14 @@ export default function BookDetailPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title, authors }),
       });
-      if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+      if (!res.ok) {
+        const e = await res.json();
+        throw new Error(e.error ?? '書籍が見つかりませんでした');
+      }
 
       const data = await res.json();
       const found = data.book as Book;
 
-      // 見つかった情報でフォームを補完（既入力を上書きしない場合はコメントを外して選択）
       setEditForm((prev) => prev ? {
         ...prev,
         isbn: normalizeIsbn(found.isbn) || prev.isbn,
@@ -153,8 +156,9 @@ export default function BookDetailPage() {
         publisher: found.publisher || prev.publisher,
         published_date: found.published_date || prev.published_date,
       } : prev);
+      setIsbnSearchMsg({ type: 'success', text: `「${found.title}」が見つかりました` });
     } catch (err) {
-      setError(err instanceof Error ? err.message : '書籍が見つかりませんでした');
+      setIsbnSearchMsg({ type: 'error', text: err instanceof Error ? err.message : '書籍が見つかりませんでした' });
     }
     setSearchingIsbn(false);
   }
@@ -344,6 +348,13 @@ export default function BookDetailPage() {
                   >
                     {searchingIsbn ? '検索中...' : '🔍 タイトルからISBNを検索'}
                   </button>
+                </div>
+                {isbnSearchMsg && (
+                  <p className={`text-xs ${isbnSearchMsg.type === 'error' ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                    {isbnSearchMsg.type === 'error' ? '⚠️ ' : '✅ '}{isbnSearchMsg.text}
+                  </p>
+                )}
+                <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
                     onClick={saveEdit}

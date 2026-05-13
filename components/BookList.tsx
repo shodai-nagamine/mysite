@@ -59,6 +59,7 @@ export default function BookList() {
   const [editForm, setEditForm] = useState<EditForm | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [searchingIsbnFor, setSearchingIsbnFor] = useState<string | null>(null);
+  const [isbnSearchMsg, setIsbnSearchMsg] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -147,7 +148,7 @@ export default function BookList() {
     if (!title) { setError('タイトルを入力してください'); return; }
 
     setSearchingIsbnFor(bookId);
-    setError(null);
+    setIsbnSearchMsg(null);
 
     try {
       const authors = editForm.authors.split(',').map((a) => a.trim()).filter(Boolean);
@@ -156,7 +157,10 @@ export default function BookList() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title, authors }),
       });
-      if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+      if (!res.ok) {
+        const e = await res.json();
+        throw new Error(e.error ?? '書籍が見つかりませんでした');
+      }
       const data = await res.json();
       const found = data.book as Book;
 
@@ -168,8 +172,9 @@ export default function BookList() {
         publisher: found.publisher || prev.publisher,
         published_date: found.published_date || prev.published_date,
       } : prev);
+      setIsbnSearchMsg({ type: 'success', text: `「${found.title}」が見つかりました` });
     } catch (err) {
-      setError(getErrorMessage(err));
+      setIsbnSearchMsg({ type: 'error', text: getErrorMessage(err) });
     }
     setSearchingIsbnFor(null);
   }
@@ -443,12 +448,19 @@ export default function BookList() {
                     <div className="flex flex-wrap gap-2">
                       <button
                         type="button"
-                        onClick={() => searchIsbnFromTitle(book.id!)}
+                        onClick={() => { setIsbnSearchMsg(null); searchIsbnFromTitle(book.id!); }}
                         disabled={busyAction !== null || searchingIsbnFor !== null}
                         className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-medium text-violet-800 transition hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-violet-900/60 dark:bg-violet-900/20 dark:text-violet-200"
                       >
                         {searchingIsbnFor === book.id ? '検索中...' : '🔍 タイトルからISBNを検索'}
                       </button>
+                    </div>
+                    {isbnSearchMsg && editingId === book.id && (
+                      <p className={`text-xs ${isbnSearchMsg.type === 'error' ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                        {isbnSearchMsg.type === 'error' ? '⚠️ ' : '✅ '}{isbnSearchMsg.text}
+                      </p>
+                    )}
+                    <div className="flex flex-wrap gap-2">
                       <button
                         type="button"
                         onClick={() => saveEdit(book)}
