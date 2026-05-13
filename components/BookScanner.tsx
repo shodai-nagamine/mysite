@@ -36,25 +36,18 @@ export default function BookScanner() {
   }, []);
 
   const toBase64 = async (file: File): Promise<{ base64: string; mimeType: string }> => {
-    const objectUrl = URL.createObjectURL(file);
-    try {
-      const img = new Image();
-      img.src = objectUrl;
-      await img.decode();
-
-      const MAX = 1000;
-      const scale = Math.min(1, MAX / Math.max(img.width, img.height));
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.round(img.width * scale);
-      canvas.height = Math.round(img.height * scale);
-      const ctx = canvas.getContext('2d');
-      if (!ctx) throw new Error('Canvas が使えません');
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      const [, base64] = canvas.toDataURL('image/jpeg', 0.85).split(',');
-      return { base64, mimeType: 'image/jpeg' };
-    } finally {
-      URL.revokeObjectURL(objectUrl);
-    }
+    const bitmap = await createImageBitmap(file);
+    const MAX = 1000;
+    const scale = Math.min(1, MAX / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Canvas が使えません');
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+    const [, base64] = canvas.toDataURL('image/jpeg', 0.85).split(',');
+    return { base64, mimeType: 'image/jpeg' };
   };
 
   const handleFile = useCallback(async (file: File) => {
