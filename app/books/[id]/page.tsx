@@ -254,7 +254,7 @@ export default function BookDetailPage() {
 
         <BookCard
           book={book}
-          showBuyButtons
+          showBuyButtons={normalizeReadingStatus(book.reading_status) === 'wishlist'}
           statusControl={
             <label className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
               <span>ステータス</span>
@@ -270,33 +270,37 @@ export default function BookDetailPage() {
               </select>
             </label>
           }
-          actionControls={
+          topActions={
             <>
               <button
                 type="button"
                 onClick={startEdit}
                 disabled={saving || refreshing || deleting}
-                className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
+                title="編集"
+                className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 bg-white text-sm text-zinc-600 transition hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
               >
-                編集
-              </button>
-              <button
-                type="button"
-                onClick={refreshFromIsbn}
-                disabled={saving || refreshing || deleting || !normalizeIsbn(book.isbn)}
-                className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-medium text-sky-800 transition hover:bg-sky-100 disabled:opacity-50 dark:border-sky-900/60 dark:bg-sky-900/20 dark:text-sky-200"
-              >
-                {refreshing ? '取得中...' : 'ISBNから書誌情報を取得'}
+                ✏️
               </button>
               <button
                 type="button"
                 onClick={handleDelete}
                 disabled={saving || refreshing || deleting}
-                className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700 transition hover:bg-red-100 disabled:opacity-50 dark:border-red-900/60 dark:bg-red-900/20 dark:text-red-200"
+                title="削除"
+                className="flex h-8 w-8 items-center justify-center rounded-lg border border-red-200 bg-red-50 text-sm transition hover:bg-red-100 disabled:opacity-50 dark:border-red-900/60 dark:bg-red-900/20"
               >
-                {deleting ? '削除中...' : '本棚から削除'}
+                🗑️
               </button>
             </>
+          }
+          actionControls={
+            <button
+              type="button"
+              onClick={refreshFromIsbn}
+              disabled={saving || refreshing || deleting || !normalizeIsbn(book.isbn)}
+              className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-medium text-sky-800 transition hover:bg-sky-100 disabled:opacity-50 dark:border-sky-900/60 dark:bg-sky-900/20 dark:text-sky-200"
+            >
+              {refreshing ? '取得中...' : 'ISBNから書誌情報を取得'}
+            </button>
           }
           editForm={
             editing && editForm ? (

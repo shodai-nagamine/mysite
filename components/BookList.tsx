@@ -367,7 +367,31 @@ export default function BookList() {
             <BookCard
               key={book.id ?? `${book.title}-${book.created_at}`}
               book={book}
-              showBuyButtons
+              showBuyButtons={normalizeReadingStatus(book.reading_status) === 'wishlist'}
+              topActions={
+                book.id ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => startEdit(book)}
+                      disabled={busyAction !== null}
+                      title="編集"
+                      className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 bg-white text-sm text-zinc-600 transition hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                    >
+                      ✏️
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => deleteBook(book)}
+                      disabled={busyAction !== null}
+                      title="削除"
+                      className="flex h-8 w-8 items-center justify-center rounded-lg border border-red-200 bg-red-50 text-sm transition hover:bg-red-100 disabled:opacity-50 dark:border-red-900/60 dark:bg-red-900/20 dark:hover:bg-red-900/30"
+                    >
+                      🗑️
+                    </button>
+                  </>
+                ) : null
+              }
               actionControls={
                 book.id ? (
                   <>
@@ -379,27 +403,11 @@ export default function BookList() {
                     </Link>
                     <button
                       type="button"
-                      onClick={() => startEdit(book)}
-                      disabled={busyAction !== null}
-                      className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
-                    >
-                      編集
-                    </button>
-                    <button
-                      type="button"
                       onClick={() => refreshMetadataFromIsbn(book)}
                       disabled={busyAction !== null || !normalizeIsbn(book.isbn)}
                       className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-medium text-sky-800 transition hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-900/60 dark:bg-sky-900/20 dark:text-sky-200 dark:hover:bg-sky-900/30"
                     >
                       {busyAction === `refresh:${book.id}` ? '取得中...' : 'ISBNから書誌情報を取得'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => deleteBook(book)}
-                      disabled={busyAction !== null}
-                      className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-900/60 dark:bg-red-900/20 dark:text-red-200 dark:hover:bg-red-900/30"
-                    >
-                      {busyAction === `delete:${book.id}` ? '削除中...' : '削除'}
                     </button>
                   </>
                 ) : null

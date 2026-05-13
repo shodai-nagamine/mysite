@@ -9,7 +9,8 @@ interface BookCardProps {
   book: Book;
   showBuyButtons?: boolean;
   statusControl?: React.ReactNode;
-  actionControls?: React.ReactNode;
+  topActions?: React.ReactNode;    // 右上に配置するアクション（編集・削除など）
+  actionControls?: React.ReactNode; // カード内のアクション（ISBN取得など）
   editForm?: React.ReactNode;
 }
 
@@ -21,13 +22,23 @@ export default function BookCard({
   book,
   showBuyButtons = false,
   statusControl,
+  topActions,
   actionControls,
   editForm,
 }: BookCardProps) {
   const publishedYear = getPublishedYear(book.published_date);
 
   return (
-    <div className="flex flex-col gap-5 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-700 dark:bg-zinc-900 sm:flex-row">
+    <div className="relative flex flex-col gap-5 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-700 dark:bg-zinc-900 sm:flex-row">
+
+      {/* 右上アクション（編集・削除） */}
+      {topActions && (
+        <div className="absolute right-3 top-3 flex gap-1">
+          {topActions}
+        </div>
+      )}
+
+      {/* 表紙画像 */}
       {book.cover_url ? (
         <div className="relative h-36 w-24 flex-shrink-0 overflow-hidden rounded-lg shadow-md">
           <Image
@@ -44,49 +55,48 @@ export default function BookCard({
         </div>
       )}
 
-      <div className="flex min-w-0 flex-1 flex-col gap-1 overflow-hidden">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="min-w-0">
-            <h2 className="text-lg font-bold leading-tight text-zinc-900 dark:text-white">
-              {book.title}
-            </h2>
+      {/* コンテンツ */}
+      <div className={`flex min-w-0 flex-1 flex-col gap-1 overflow-hidden ${topActions ? 'pr-16' : ''}`}>
 
-            {book.authors.length > 0 && (
-              <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-                {book.authors.join(', ')}
-              </p>
-            )}
-          </div>
-
-          <div className="flex flex-shrink-0 flex-wrap items-center gap-2">
+        {/* タイトル・著者・ステータス */}
+        <div className="flex flex-col gap-2">
+          <h2 className="text-lg font-bold leading-tight text-zinc-900 dark:text-white">
+            {book.title}
+          </h2>
+          {book.authors.length > 0 && (
+            <p className="text-sm text-zinc-600 dark:text-zinc-400">
+              {book.authors.join(', ')}
+            </p>
+          )}
+          <div className="flex flex-wrap items-center gap-2">
             <StatusBadge status={book.reading_status} />
             {statusControl}
           </div>
         </div>
 
-        {actionControls && <div className="mt-3 flex flex-wrap gap-2">{actionControls}</div>}
+        {/* カード内アクション（ISBN取得・詳細など） */}
+        {actionControls && (
+          <div className="mt-2 flex flex-wrap gap-2">{actionControls}</div>
+        )}
 
+        {/* 編集フォーム */}
         {editForm}
 
-        <div className="mt-1 flex flex-wrap gap-2">
+        {/* メタデータチップ */}
+        <div className="mt-2 flex flex-wrap gap-2">
           {book.publisher && (
             <span className="rounded-full bg-zinc-100 px-3 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
-              出版社: {book.publisher}
+              {book.publisher}
             </span>
           )}
           {publishedYear && (
             <span className="rounded-full bg-zinc-100 px-3 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
-              発行年: {publishedYear}
+              {publishedYear}年
             </span>
           )}
           {book.page_count && (
             <span className="rounded-full bg-zinc-100 px-3 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
-              {book.page_count}ページ
-            </span>
-          )}
-          {book.language && (
-            <span className="rounded-full bg-zinc-100 px-3 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
-              {book.language.toUpperCase()}
+              {book.page_count}p
             </span>
           )}
           <span
@@ -101,19 +111,19 @@ export default function BookCard({
         </div>
 
         {book.isbn && (
-          <p className="mt-1 font-mono text-xs text-zinc-400 dark:text-zinc-500">
+          <p className="font-mono text-xs text-zinc-400 dark:text-zinc-500">
             ISBN: {book.isbn}
           </p>
         )}
 
         {book.description && (
-          <p className="mt-2 line-clamp-3 text-sm text-zinc-600 dark:text-zinc-400">
+          <p className="mt-1 line-clamp-3 text-sm text-zinc-600 dark:text-zinc-400">
             {book.description}
           </p>
         )}
 
         {book.categories.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-1">
+          <div className="mt-1 flex flex-wrap gap-1">
             {book.categories.map((cat) => (
               <span
                 key={cat}
@@ -125,8 +135,9 @@ export default function BookCard({
           </div>
         )}
 
+        {/* 購入ボタン：wishlist のみ表示 */}
         {showBuyButtons && (
-          <div className="mt-4">
+          <div className="mt-3">
             <BuyButtons book={book} />
           </div>
         )}
