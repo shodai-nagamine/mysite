@@ -201,6 +201,60 @@ async function fetchBookByIsbn(isbn: string): Promise<Omit<Book, 'scan_method'> 
   );
 }
 
+async function fetchNdlByTitle(title: string, author?: string): Promise<Omit<Book, 'scan_method'> | null> {
+  const query = author
+    ? `title="${title}" AND creator="${author}"`
+    : `title="${title}"`;
+  const url = `https://ndlsearch.ndl.go.jp/api/sru?operation=searchRetrieve&query=${encodeURIComponent(query)}&recordSchema=dcndl&maximumRecords=1`;
+  const res = await fetch(url);
+  if (!res.ok) return null;
+
+  const xml = await res.text();
+  const recordCount = Number(extractFirstTag(xml, 'numberOfRecords') ?? 0);
+  if (!recordCount) return null;
+
+  const ndlTitle = extractFirstTag(xml, 'dcterms:title') ?? extractFirstTag(xml, 'rdf:value');
+  if (!ndlTitle) return null;
+
+  const creator = extractFirstTag(xml, 'dc:creator') ?? extractFirstTag(xml, 'foaf:name');
+  const publisherBlock = extractFirstTagBlock(xml, 'dcterms:publisher');
+  const publisher = publisherBlock ? extractFirstTag(publisherBlock, 'foaf:name') : null;
+  const publishedDate = extractFirstTag(xml, 'dcterms:issued') ?? extractFirstTag(xml, 'dcterms:date');
+  const extent = extractFirstTag(xml, 'dcterms:extent');
+  const categories = extractAllTags(xml, 'rdf:value').filter((v) => v !== ndlTitle).slice(0, 8);
+
+  // ISBNをXMLから抽出
+  const isbnMatch = xml.match(/urn:isbn:([0-9Xx]+)/i);
+  const isbn = isbnMatch ? isbnMatch[1].toUpperCase() : null;
+
+  return {
+    isbn,
+    title: ndlTitle,
+    authors: splitAuthors(creator),
+    publisher,
+    published_date: publishedDate,
+    description: null,
+    cover_url: null,
+    page_count: parsePageCount(extent),
+    categories,
+    language: 'ja',
+    raw_metadata: { source: 'ndlsearch-title', xml },
+  };
+}
+
+async function enrichWithIsbn(book: Omit<Book, 'scan_method'>): Promise<Omit<Book, 'scan_method'>> {
+  const isbn = normalizeIsbn(book.isbn);
+  if (!isbn) return book;
+  // OpenBD は日本語書籍の表紙・詳細が充実しているので優先的に補完
+  const enriched = (await fetchOpenBd(isbn)) ?? (await fetchNdlSearch(isbn));
+  if (!enriched) return book;
+  return {
+    ...enriched,
+    // Google Books の表紙 URL が取れている場合は残す
+    cover_url: enriched.cover_url ?? book.cover_url,
+  };
+}
+
 async function identifyByAI(imageBase64: string, mimeType: string): Promise<{ title: string; authors: string[]; isbn: string | null }> {
   const res = await fetch(`${SUPABASE_URL}/functions/v1/identify-book-cover`, {
     method: 'POST',
@@ -238,15 +292,33 @@ export async function POST(req: NextRequest) {
       scanMethod = 'ai';
       const aiResult = await identifyByAI(imageBase64, mimeType);
 
+      // ① AIがISBNを返した場合：各APIで完全取得
       if (aiResult.isbn) {
         bookData = await fetchBookByIsbn(aiResult.isbn);
       }
+
+      // ② ISBNなし／取得失敗 → タイトルでGoogle Books検索
       if (!bookData && aiResult.title) {
         const searchQuery = aiResult.authors.length > 0
           ? `intitle:${aiResult.title} inauthor:${aiResult.authors[0]}`
           : `intitle:${aiResult.title}`;
-        bookData = await fetchGoogleBooks(searchQuery);
+        const googleResult = await fetchGoogleBooks(searchQuery);
+        if (googleResult) {
+          // Google BooksでISBNが取れたらOpenBD/NDLで日本語情報を補完
+          bookData = await enrichWithIsbn(googleResult);
+        }
       }
+
+      // ③ Google Booksでも見つからない → NDLタイトル検索
+      if (!bookData && aiResult.title) {
+        const ndlResult = await fetchNdlByTitle(aiResult.title, aiResult.authors[0]);
+        if (ndlResult) {
+          // NDLでISBNが取れたらOpenBDで表紙・詳細を補完
+          bookData = await enrichWithIsbn(ndlResult);
+        }
+      }
+
+      // ④ 最終フォールバック：AIが取得したタイトル・著者のみ保存
       if (!bookData) {
         bookData = {
           isbn: aiResult.isbn,
