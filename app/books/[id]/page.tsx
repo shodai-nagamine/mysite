@@ -6,6 +6,8 @@ import Link from 'next/link';
 import { supabase, Book, ReadingStatus } from '@/lib/supabase';
 import BookCard from '@/components/BookCard';
 import { normalizeReadingStatus, READING_STATUS_LABELS } from '@/components/StatusBadge';
+import HighlightScanner from '@/components/HighlightScanner';
+import HighlightList from '@/components/HighlightList';
 
 const BOOK_SELECT =
   'id,isbn,title,authors,publisher,published_date,description,cover_url,page_count,categories,language,raw_metadata,scan_method,reading_status,created_at';
@@ -46,6 +48,7 @@ export default function BookDetailPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [searchingIsbn, setSearchingIsbn] = useState(false);
   const [isbnSearchMsg, setIsbnSearchMsg] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
+  const [highlightRefreshKey, setHighlightRefreshKey] = useState(0);
 
   useEffect(() => {
     async function load() {
@@ -385,6 +388,22 @@ export default function BookDetailPage() {
             ) : null
           }
         />
+        {/* ハイライトセクション */}
+        <section className="flex flex-col gap-4">
+          <div className="flex items-center justify-between">
+            <h2 className="font-semibold text-zinc-900 dark:text-white">
+              📌 ハイライト
+              <span className="ml-2 text-sm font-normal text-zinc-400">
+                マーカー・下線部分を写真で記録
+              </span>
+            </h2>
+          </div>
+          <HighlightScanner
+            bookId={id}
+            onSaved={() => setHighlightRefreshKey((k) => k + 1)}
+          />
+          <HighlightList bookId={id} refreshKey={highlightRefreshKey} />
+        </section>
       </div>
     </main>
   );
