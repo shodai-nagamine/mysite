@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useCallback } from 'react';
+import Link from 'next/link';
 import { BrowserMultiFormatReader } from '@zxing/browser';
 import { NotFoundException } from '@zxing/library';
 import { supabase, Book } from '@/lib/supabase';
@@ -336,6 +337,12 @@ export default function BookScanner() {
         <div className="flex flex-col gap-2">
           <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">取得結果</p>
           <BookCard book={result} />
+          <Link
+            href="/books"
+            className="mt-2 flex items-center justify-center gap-2 rounded-xl border border-zinc-300 px-4 py-3 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          >
+            📚 本棚を見る →
+          </Link>
         </div>
       )}
 
