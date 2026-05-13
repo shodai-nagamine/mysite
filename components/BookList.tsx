@@ -8,6 +8,7 @@ import { normalizeReadingStatus, READING_STATUS_LABELS } from '@/components/Stat
 
 const FILTERS: Array<{ value: 'all' | ReadingStatus; label: string }> = [
   { value: 'all', label: 'すべて' },
+  { value: 'wishlist', label: '欲しい！' },
   { value: 'want', label: '積読' },
   { value: 'reading', label: '読書中' },
   { value: 'done', label: '読了' },
@@ -436,7 +437,7 @@ export default function BookList() {
                       onChange={(event) => updateStatus(book, event.target.value as ReadingStatus)}
                       className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
                     >
-                      {(['want', 'reading', 'done'] as ReadingStatus[]).map((status) => (
+                      {(['wishlist', 'want', 'reading', 'done'] as ReadingStatus[]).map((status) => (
                         <option key={status} value={status}>
                           {READING_STATUS_LABELS[status]}
                         </option>

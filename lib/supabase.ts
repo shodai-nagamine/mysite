@@ -5,7 +5,7 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-export type ReadingStatus = 'want' | 'reading' | 'done';
+export type ReadingStatus = 'wishlist' | 'want' | 'reading' | 'done';
 
 export interface Book {
   id?: string;

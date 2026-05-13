@@ -130,7 +130,24 @@ export default function BookScanner() {
     return { base64, mimeType: 'image/jpeg' };
   };
 
-  const identifyAndSave = useCallback(async (body: Record<string, string>) => {
+  const uploadCoverImage = useCallback(async (file: File): Promise<string | null> => {
+    try {
+      let blob: Blob = file;
+      if (isHeic(file)) blob = await convertHeicToJpeg(file);
+      const ext = 'jpg';
+      const path = `${Date.now()}.${ext}`;
+      const { error } = await supabase.storage
+        .from('book-covers')
+        .upload(path, blob, { contentType: 'image/jpeg', upsert: false });
+      if (error) return null;
+      const { data } = supabase.storage.from('book-covers').getPublicUrl(path);
+      return data.publicUrl;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const identifyAndSave = useCallback(async (body: Record<string, string>, originalFile?: File) => {
     setStatus('fetching');
     const res = await fetch('/api/identify-book', {
       method: 'POST',
@@ -144,7 +161,14 @@ export default function BookScanner() {
     }
 
     const data = await res.json();
-    const book: Book = data.book;
+    let book: Book = data.book;
+
+    // 表紙画像がない場合はスキャン画像をアップロード
+    if (!book.cover_url && originalFile) {
+      setStatusMsg('表紙画像をアップロード中...');
+      const uploadedUrl = await uploadCoverImage(originalFile);
+      if (uploadedUrl) book = { ...book, cover_url: uploadedUrl };
+    }
 
     setStatus('saving');
     setStatusMsg('重複を確認中...');
@@ -226,7 +250,7 @@ export default function BookScanner() {
         body = { imageBase64: base64, mimeType };
       }
 
-      await identifyAndSave(body);
+      await identifyAndSave(body, file);
     } catch (err) {
       console.error('[BookScanner]', err);
       setStatus('error');
