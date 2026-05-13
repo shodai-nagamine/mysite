@@ -276,8 +276,10 @@ async function identifyByAI(imageBase64: string, mimeType: string): Promise<{ ti
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { isbn, imageBase64, mimeType } = body as {
+    const { isbn, title, authors, imageBase64, mimeType } = body as {
       isbn?: string;
+      title?: string;
+      authors?: string[];
       imageBase64?: string;
       mimeType?: string;
     };
@@ -287,6 +289,21 @@ export async function POST(req: NextRequest) {
 
     if (isbn) {
       bookData = await fetchBookByIsbn(isbn);
+      scanMethod = 'barcode';
+    } else if (title) {
+      // タイトル（＋著者）からISBN・書誌情報を検索
+      const authorList = (authors as string[] | undefined) ?? [];
+      const searchQuery = authorList.length > 0
+        ? `intitle:${title} inauthor:${authorList[0]}`
+        : `intitle:${title}`;
+      const googleResult = await fetchGoogleBooks(searchQuery);
+      if (googleResult) {
+        bookData = await enrichWithIsbn(googleResult);
+      }
+      if (!bookData) {
+        const ndlResult = await fetchNdlByTitle(title as string, authorList[0]);
+        if (ndlResult) bookData = await enrichWithIsbn(ndlResult);
+      }
       scanMethod = 'barcode';
     } else if (imageBase64 && mimeType) {
       scanMethod = 'ai';

@@ -44,6 +44,7 @@ export default function BookDetailPage() {
   const [editForm, setEditForm] = useState<EditForm | null>(null);
   const [saving, setSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [searchingIsbn, setSearchingIsbn] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -121,6 +122,41 @@ export default function BookDetailPage() {
       setEditing(false);
     }
     setSaving(false);
+  }
+
+  async function searchIsbnFromTitle() {
+    if (!editForm) return;
+    const title = editForm.title.trim();
+    if (!title) { setError('タイトルを入力してください'); return; }
+
+    setSearchingIsbn(true);
+    setError(null);
+
+    try {
+      const authors = editForm.authors.split(',').map((a) => a.trim()).filter(Boolean);
+      const res = await fetch('/api/identify-book', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, authors }),
+      });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+
+      const data = await res.json();
+      const found = data.book as Book;
+
+      // 見つかった情報でフォームを補完（既入力を上書きしない場合はコメントを外して選択）
+      setEditForm((prev) => prev ? {
+        ...prev,
+        isbn: normalizeIsbn(found.isbn) || prev.isbn,
+        title: found.title || prev.title,
+        authors: found.authors.join(', ') || prev.authors,
+        publisher: found.publisher || prev.publisher,
+        published_date: found.published_date || prev.published_date,
+      } : prev);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '書籍が見つかりませんでした');
+    }
+    setSearchingIsbn(false);
   }
 
   async function refreshFromIsbn() {
@@ -299,11 +335,19 @@ export default function BookDetailPage() {
                     className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
                   />
                 </label>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={searchIsbnFromTitle}
+                    disabled={saving || searchingIsbn}
+                    className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-medium text-violet-800 transition hover:bg-violet-100 disabled:opacity-50 dark:border-violet-900/60 dark:bg-violet-900/20 dark:text-violet-200"
+                  >
+                    {searchingIsbn ? '検索中...' : '🔍 タイトルからISBNを検索'}
+                  </button>
                   <button
                     type="button"
                     onClick={saveEdit}
-                    disabled={saving}
+                    disabled={saving || searchingIsbn}
                     className="rounded-lg bg-zinc-900 px-3 py-2 text-xs font-medium text-white transition hover:bg-zinc-700 disabled:opacity-50 dark:bg-white dark:text-zinc-900"
                   >
                     {saving ? '保存中...' : '保存'}
@@ -311,7 +355,7 @@ export default function BookDetailPage() {
                   <button
                     type="button"
                     onClick={() => setEditing(false)}
-                    disabled={saving}
+                    disabled={saving || searchingIsbn}
                     className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
                   >
                     キャンセル

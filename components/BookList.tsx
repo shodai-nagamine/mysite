@@ -58,6 +58,7 @@ export default function BookList() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<EditForm | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [searchingIsbnFor, setSearchingIsbnFor] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -138,6 +139,39 @@ export default function BookList() {
   function cancelEdit() {
     setEditingId(null);
     setEditForm(null);
+  }
+
+  async function searchIsbnFromTitle(bookId: string) {
+    if (!editForm) return;
+    const title = editForm.title.trim();
+    if (!title) { setError('タイトルを入力してください'); return; }
+
+    setSearchingIsbnFor(bookId);
+    setError(null);
+
+    try {
+      const authors = editForm.authors.split(',').map((a) => a.trim()).filter(Boolean);
+      const res = await fetch('/api/identify-book', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, authors }),
+      });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+      const data = await res.json();
+      const found = data.book as Book;
+
+      setEditForm((prev) => prev ? {
+        ...prev,
+        isbn: normalizeIsbn(found.isbn) || prev.isbn,
+        title: found.title || prev.title,
+        authors: found.authors.join(', ') || prev.authors,
+        publisher: found.publisher || prev.publisher,
+        published_date: found.published_date || prev.published_date,
+      } : prev);
+    } catch (err) {
+      setError(getErrorMessage(err));
+    }
+    setSearchingIsbnFor(null);
   }
 
   function updateEditField(field: keyof EditForm, value: string) {
@@ -409,8 +443,16 @@ export default function BookList() {
                     <div className="flex flex-wrap gap-2">
                       <button
                         type="button"
+                        onClick={() => searchIsbnFromTitle(book.id!)}
+                        disabled={busyAction !== null || searchingIsbnFor !== null}
+                        className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-medium text-violet-800 transition hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-violet-900/60 dark:bg-violet-900/20 dark:text-violet-200"
+                      >
+                        {searchingIsbnFor === book.id ? '検索中...' : '🔍 タイトルからISBNを検索'}
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => saveEdit(book)}
-                        disabled={busyAction !== null}
+                        disabled={busyAction !== null || searchingIsbnFor !== null}
                         className="rounded-lg bg-zinc-900 px-3 py-2 text-xs font-medium text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
                       >
                         {busyAction === `edit:${book.id}` ? '保存中...' : '保存'}
