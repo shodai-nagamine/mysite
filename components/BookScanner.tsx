@@ -32,6 +32,14 @@ function normalizeIsbn(value?: string | null) {
   return value?.replace(/[^0-9Xx]/g, '').toUpperCase() ?? '';
 }
 
+/** ISBN-13（978/979始まり13桁）またはISBN-10（10桁）かどうか判定 */
+function isIsbnCode(text: string): boolean {
+  const clean = normalizeIsbn(text);
+  if (clean.length === 13) return clean.startsWith('978') || clean.startsWith('979');
+  if (clean.length === 10) return /^[0-9]{9}[0-9Xx]$/.test(clean);
+  return false;
+}
+
 function hasSamePrimaryAuthor(a: Book, b: Book) {
   const authorA = a.authors[0]?.trim().toLowerCase();
   const authorB = b.authors[0]?.trim().toLowerCase();
@@ -101,9 +109,27 @@ export default function BookScanner() {
       imgRef.current = img;
 
       const reader = new BrowserMultiFormatReader();
-      const res = await reader.decodeFromImageElement(img);
+
+      // 複数バーコードをすべて検出して ISBN を優先する
+      const results: string[] = [];
+      try {
+        const allResults = await reader.decodeAllFromImageElement(img);
+        for (const r of allResults) results.push(r.getText());
+      } catch {
+        // decodeAll 未対応の場合は単一検出にフォールバック
+        try {
+          const single = await reader.decodeFromImageElement(img);
+          results.push(single.getText());
+        } catch {
+          // バーコードなし
+        }
+      }
+
       URL.revokeObjectURL(objectUrl);
-      return res.getText();
+
+      // ISBN フォーマットのコードを優先、なければ最初の検出結果
+      const isbnCode = results.find(isIsbnCode);
+      return isbnCode ?? (results.length > 0 ? results[0] : null);
     } catch (e) {
       if (e instanceof NotFoundException) return null;
       return null;
@@ -237,15 +263,18 @@ export default function BookScanner() {
     setStatusMsg('バーコードを検索中...');
 
     try {
-      const isbn = await tryBarcodeDetect(file);
+      const detected = await tryBarcodeDetect(file);
       let body: Record<string, string>;
 
-      if (isbn) {
-        const normalizedIsbn = normalizeIsbn(isbn);
-        setStatusMsg(`バーコード検出: ${normalizedIsbn}`);
+      if (detected && isIsbnCode(detected)) {
+        // ISBN バーコードを検出
+        const normalizedIsbn = normalizeIsbn(detected);
+        setStatusMsg(`ISBNバーコード検出: ${normalizedIsbn}`);
         body = { isbn: normalizedIsbn };
       } else {
-        setStatusMsg('AI で書籍を識別中...');
+        // ISBN でないバーコード or バーコードなし → AI で識別
+        if (detected) setStatusMsg(`バーコード検出（ISBN以外）→ AI で識別中...`);
+        else setStatusMsg('AI で書籍を識別中...');
         const { base64, mimeType } = await toBase64(file, setStatusMsg);
         body = { imageBase64: base64, mimeType };
       }
