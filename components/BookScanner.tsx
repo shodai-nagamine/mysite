@@ -6,6 +6,21 @@ import { NotFoundException } from '@zxing/library';
 import { supabase, Book } from '@/lib/supabase';
 import BookCard from './BookCard';
 
+function isHeic(file: File) {
+  return (
+    file.type === 'image/heic' ||
+    file.type === 'image/heif' ||
+    file.name.toLowerCase().endsWith('.heic') ||
+    file.name.toLowerCase().endsWith('.heif')
+  );
+}
+
+async function convertHeicToJpeg(file: File): Promise<Blob> {
+  const heic2any = (await import('heic2any')).default;
+  const result = await heic2any({ blob: file, toType: 'image/jpeg', quality: 0.85 });
+  return Array.isArray(result) ? result[0] : result;
+}
+
 type ScanStatus = 'idle' | 'scanning' | 'fetching' | 'saving' | 'done' | 'error';
 
 export default function BookScanner() {
@@ -35,8 +50,13 @@ export default function BookScanner() {
     }
   }, []);
 
-  const toBase64 = async (file: File): Promise<{ base64: string; mimeType: string }> => {
-    const bitmap = await createImageBitmap(file);
+  const toBase64 = async (file: File, onStatus?: (msg: string) => void): Promise<{ base64: string; mimeType: string }> => {
+    let blob: Blob = file;
+    if (isHeic(file)) {
+      onStatus?.('HEIC → JPEG 変換中...');
+      blob = await convertHeicToJpeg(file);
+    }
+    const bitmap = await createImageBitmap(blob);
     const MAX = 1000;
     const scale = Math.min(1, MAX / Math.max(bitmap.width, bitmap.height));
     const canvas = document.createElement('canvas');
@@ -68,7 +88,7 @@ export default function BookScanner() {
         body = { isbn };
       } else {
         setStatusMsg('AI で書籍を識別中...');
-        const { base64, mimeType } = await toBase64(file);
+        const { base64, mimeType } = await toBase64(file, setStatusMsg);
         body = { imageBase64: base64, mimeType };
       }
 
