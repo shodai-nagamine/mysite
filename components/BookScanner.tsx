@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { BrowserMultiFormatReader } from '@zxing/browser';
 import { NotFoundException } from '@zxing/library';
@@ -81,6 +82,7 @@ async function findDuplicateBook(book: Book): Promise<Book | null> {
 }
 
 export default function BookScanner() {
+  const router = useRouter();
   const [preview, setPreview] = useState<string | null>(null);
   const [status, setStatus] = useState<ScanStatus>('idle');
   const [statusMsg, setStatusMsg] = useState('');
@@ -336,10 +338,20 @@ export default function BookScanner() {
       {result && (
         <div className="flex flex-col gap-2">
           <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">取得結果</p>
-          <BookCard book={result} />
+          <div
+            onClick={() => result.id && router.push(`/books/${result.id}`)}
+            className={result.id ? 'cursor-pointer' : ''}
+          >
+            <BookCard book={result} />
+            {result.id && (
+              <p className="mt-1 text-center text-xs text-zinc-400 dark:text-zinc-500">
+                タップして本棚の詳細を見る →
+              </p>
+            )}
+          </div>
           <Link
             href="/books"
-            className="mt-2 flex items-center justify-center gap-2 rounded-xl border border-zinc-300 px-4 py-3 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            className="mt-1 flex items-center justify-center gap-2 rounded-xl border border-zinc-300 px-4 py-3 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800"
           >
             📚 本棚を見る →
           </Link>

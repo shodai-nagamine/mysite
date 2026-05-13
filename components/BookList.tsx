@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import BookCard from '@/components/BookCard';
 import { Book, ReadingStatus, supabase } from '@/lib/supabase';
 import { normalizeReadingStatus, READING_STATUS_LABELS } from '@/components/StatusBadge';
@@ -325,6 +326,12 @@ export default function BookList() {
               actionControls={
                 book.id ? (
                   <>
+                    <Link
+                      href={`/books/${book.id}`}
+                      className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
+                    >
+                      詳細
+                    </Link>
                     <button
                       type="button"
                       onClick={() => startEdit(book)}
