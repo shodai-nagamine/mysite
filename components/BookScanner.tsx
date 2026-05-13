@@ -101,38 +101,44 @@ export default function BookScanner() {
   const imgRef = useRef<HTMLImageElement | null>(null);
 
   const tryBarcodeDetect = useCallback(async (file: File): Promise<string | null> => {
+    const objectUrl = URL.createObjectURL(file);
     try {
-      const objectUrl = URL.createObjectURL(file);
       const img = new Image();
       img.src = objectUrl;
       await img.decode();
       imgRef.current = img;
 
-      const reader = new BrowserMultiFormatReader();
+      const candidates: string[] = [];
 
-      // 複数バーコードをすべて検出して ISBN を優先する
-      const results: string[] = [];
-      try {
-        const allResults = await reader.decodeAllFromImageElement(img);
-        for (const r of allResults) results.push(r.getText());
-      } catch {
-        // decodeAll 未対応の場合は単一検出にフォールバック
+      // ① BarcodeDetector API（Chrome/Edge/Safari 17+）: 複数バーコードを一度に取得できる
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const BarcodeDetectorAPI = (window as any).BarcodeDetector;
+      if (BarcodeDetectorAPI) {
         try {
-          const single = await reader.decodeFromImageElement(img);
-          results.push(single.getText());
+          const detector = new BarcodeDetectorAPI({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e'] });
+          const results = await detector.detect(img);
+          for (const r of results) candidates.push(r.rawValue as string);
         } catch {
-          // バーコードなし
+          // 非対応フォーマット等は無視
         }
       }
 
-      URL.revokeObjectURL(objectUrl);
+      // ② @zxing フォールバック（BarcodeDetector がない or 検出 0 件のとき）
+      if (candidates.length === 0) {
+        try {
+          const reader = new BrowserMultiFormatReader();
+          const res = await reader.decodeFromImageElement(img);
+          candidates.push(res.getText());
+        } catch (e) {
+          if (!(e instanceof NotFoundException)) console.warn('[barcode]', e);
+        }
+      }
 
-      // ISBN フォーマットのコードを優先、なければ最初の検出結果
-      const isbnCode = results.find(isIsbnCode);
-      return isbnCode ?? (results.length > 0 ? results[0] : null);
-    } catch (e) {
-      if (e instanceof NotFoundException) return null;
-      return null;
+      // ISBN フォーマットを優先、なければ最初の候補を返す
+      const isbnCode = candidates.find(isIsbnCode);
+      return isbnCode ?? (candidates.length > 0 ? candidates[0] : null);
+    } finally {
+      URL.revokeObjectURL(objectUrl);
     }
   }, []);
 
