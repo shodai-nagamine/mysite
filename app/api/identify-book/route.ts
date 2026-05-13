@@ -24,6 +24,80 @@ interface GoogleBooksResponse {
   totalItems?: number;
 }
 
+interface OpenBdSummary {
+  isbn?: string;
+  title?: string;
+  author?: string;
+  publisher?: string;
+  pubdate?: string;
+  cover?: string;
+  volume?: string;
+  series?: string;
+}
+
+interface OpenBdBook {
+  summary?: OpenBdSummary;
+  onix?: {
+    CollateralDetail?: {
+      TextContent?: Array<{ Text?: string }>;
+    };
+  };
+}
+
+function normalizeIsbn(value?: string | null) {
+  return value?.replace(/[^0-9Xx]/g, '').toUpperCase() ?? '';
+}
+
+function decodeXmlEntities(value?: string | null) {
+  if (!value) return null;
+
+  return value
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, '&')
+    .trim();
+}
+
+function stripTags(value?: string | null) {
+  return decodeXmlEntities(value)?.replace(/<[^>]*>/g, '').trim() || null;
+}
+
+function extractFirstTag(xml: string, tag: string) {
+  const decodedXml = decodeXmlEntities(xml) ?? xml;
+  const match = decodedXml.match(new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)</${tag}>`));
+  return stripTags(match?.[1]);
+}
+
+function extractFirstTagBlock(xml: string, tag: string) {
+  const decodedXml = decodeXmlEntities(xml) ?? xml;
+  return decodedXml.match(new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)</${tag}>`))?.[1] ?? null;
+}
+
+function extractAllTags(xml: string, tag: string) {
+  const decodedXml = decodeXmlEntities(xml) ?? xml;
+  const matches = decodedXml.matchAll(new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)</${tag}>`, 'g'));
+  return Array.from(matches)
+    .map((match) => stripTags(match[1]))
+    .filter((value): value is string => Boolean(value));
+}
+
+function splitAuthors(value?: string | null) {
+  if (!value) return [];
+
+  return value
+    .replace(/\s*(著|編著|編|監修|訳|監訳)\s*$/u, '')
+    .split(/[、,／/]/u)
+    .map((author) => author.trim())
+    .filter(Boolean);
+}
+
+function parsePageCount(value?: string | null) {
+  const firstNumber = value?.match(/\d+/)?.[0];
+  return firstNumber ? Number(firstNumber) : null;
+}
+
 async function fetchGoogleBooks(query: string): Promise<Omit<Book, 'scan_method'> | null> {
   const url = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=1&langRestrict=`;
   const res = await fetch(url);
@@ -51,6 +125,80 @@ async function fetchGoogleBooks(query: string): Promise<Omit<Book, 'scan_method'
     language: info.language ?? null,
     raw_metadata: item as unknown as Record<string, unknown>,
   };
+}
+
+async function fetchOpenBd(isbn: string): Promise<Omit<Book, 'scan_method'> | null> {
+  const normalizedIsbn = normalizeIsbn(isbn);
+  if (!normalizedIsbn) return null;
+
+  const res = await fetch(`https://api.openbd.jp/v1/get?isbn=${encodeURIComponent(normalizedIsbn)}`);
+  if (!res.ok) return null;
+
+  const data = (await res.json()) as Array<OpenBdBook | null>;
+  const item = data[0];
+  const summary = item?.summary;
+  if (!summary?.title) return null;
+
+  return {
+    isbn: normalizeIsbn(summary.isbn) || normalizedIsbn,
+    title: summary.title,
+    authors: splitAuthors(summary.author),
+    publisher: summary.publisher ?? null,
+    published_date: summary.pubdate ?? null,
+    description: item?.onix?.CollateralDetail?.TextContent?.[0]?.Text ?? null,
+    cover_url: summary.cover ?? null,
+    page_count: null,
+    categories: [summary.series, summary.volume].filter((value): value is string => Boolean(value)),
+    language: 'ja',
+    raw_metadata: { source: 'openbd', data: item as unknown },
+  };
+}
+
+async function fetchNdlSearch(isbn: string): Promise<Omit<Book, 'scan_method'> | null> {
+  const normalizedIsbn = normalizeIsbn(isbn);
+  if (!normalizedIsbn) return null;
+
+  const query = `isbn="${normalizedIsbn}"`;
+  const url = `https://ndlsearch.ndl.go.jp/api/sru?operation=searchRetrieve&query=${encodeURIComponent(query)}&recordSchema=dcndl&maximumRecords=1`;
+  const res = await fetch(url);
+  if (!res.ok) return null;
+
+  const xml = await res.text();
+  const recordCount = Number(extractFirstTag(xml, 'numberOfRecords') ?? 0);
+  if (!recordCount) return null;
+
+  const title = extractFirstTag(xml, 'dcterms:title') ?? extractFirstTag(xml, 'rdf:value');
+  if (!title) return null;
+
+  const creator = extractFirstTag(xml, 'dc:creator') ?? extractFirstTag(xml, 'foaf:name');
+  const publisherBlock = extractFirstTagBlock(xml, 'dcterms:publisher');
+  const publisher = publisherBlock ? extractFirstTag(publisherBlock, 'foaf:name') : null;
+  const publishedDate = extractFirstTag(xml, 'dcterms:issued') ?? extractFirstTag(xml, 'dcterms:date');
+  const extent = extractFirstTag(xml, 'dcterms:extent');
+  const categories = extractAllTags(xml, 'rdf:value').filter((value) => value !== title).slice(0, 8);
+
+  return {
+    isbn: normalizedIsbn,
+    title,
+    authors: splitAuthors(creator),
+    publisher,
+    published_date: publishedDate,
+    description: null,
+    cover_url: null,
+    page_count: parsePageCount(extent),
+    categories,
+    language: 'ja',
+    raw_metadata: { source: 'ndlsearch', xml },
+  };
+}
+
+async function fetchBookByIsbn(isbn: string): Promise<Omit<Book, 'scan_method'> | null> {
+  return (
+    (await fetchGoogleBooks(`isbn:${isbn}`)) ??
+    (await fetchGoogleBooks(isbn)) ??
+    (await fetchOpenBd(isbn)) ??
+    (await fetchNdlSearch(isbn))
+  );
 }
 
 async function identifyByAI(imageBase64: string, mimeType: string): Promise<{ title: string; authors: string[]; isbn: string | null }> {
@@ -84,17 +232,14 @@ export async function POST(req: NextRequest) {
     let scanMethod: 'barcode' | 'ai' = 'barcode';
 
     if (isbn) {
-      bookData = await fetchGoogleBooks(`isbn:${isbn}`);
-      if (!bookData) {
-        bookData = await fetchGoogleBooks(isbn);
-      }
+      bookData = await fetchBookByIsbn(isbn);
       scanMethod = 'barcode';
     } else if (imageBase64 && mimeType) {
       scanMethod = 'ai';
       const aiResult = await identifyByAI(imageBase64, mimeType);
 
       if (aiResult.isbn) {
-        bookData = await fetchGoogleBooks(`isbn:${aiResult.isbn}`);
+        bookData = await fetchBookByIsbn(aiResult.isbn);
       }
       if (!bookData && aiResult.title) {
         const searchQuery = aiResult.authors.length > 0

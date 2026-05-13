@@ -23,10 +23,67 @@ async function convertHeicToJpeg(file: File): Promise<Blob> {
 
 type ScanStatus = 'idle' | 'scanning' | 'fetching' | 'saving' | 'done' | 'error';
 
+const BOOK_SELECT =
+  'id,isbn,title,authors,publisher,published_date,description,cover_url,page_count,categories,language,raw_metadata,scan_method,reading_status,created_at';
+
+function normalizeIsbn(value?: string | null) {
+  return value?.replace(/[^0-9Xx]/g, '').toUpperCase() ?? '';
+}
+
+function hasSamePrimaryAuthor(a: Book, b: Book) {
+  const authorA = a.authors[0]?.trim().toLowerCase();
+  const authorB = b.authors[0]?.trim().toLowerCase();
+  return Boolean(authorA && authorB && authorA === authorB);
+}
+
+function isUniqueConstraintError(error: unknown) {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: string }).code === '23505'
+  );
+}
+
+async function findDuplicateBook(book: Book): Promise<Book | null> {
+  const normalizedIsbn = normalizeIsbn(book.isbn);
+
+  if (normalizedIsbn) {
+    const { data, error } = await supabase
+      .from('books')
+      .select(BOOK_SELECT)
+      .not('isbn', 'is', null);
+
+    if (error) throw error;
+
+    const duplicate = (data ?? []).find((item) => normalizeIsbn(item.isbn) === normalizedIsbn);
+    if (duplicate) return duplicate as Book;
+  }
+
+  const title = book.title.trim();
+  if (!title) return null;
+
+  const { data, error } = await supabase
+    .from('books')
+    .select(BOOK_SELECT)
+    .eq('title', title);
+
+  if (error) throw error;
+
+  const duplicate = (data ?? []).find((item) => {
+    const existing = item as Book;
+    if (book.published_date && existing.published_date !== book.published_date) return false;
+    return hasSamePrimaryAuthor(book, existing);
+  });
+
+  return duplicate ? (duplicate as Book) : null;
+}
+
 export default function BookScanner() {
   const [preview, setPreview] = useState<string | null>(null);
   const [status, setStatus] = useState<ScanStatus>('idle');
   const [statusMsg, setStatusMsg] = useState('');
+  const [duplicateMsg, setDuplicateMsg] = useState('');
   const [result, setResult] = useState<Book | null>(null);
   const [history, setHistory] = useState<Book[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -70,47 +127,41 @@ export default function BookScanner() {
     return { base64, mimeType: 'image/jpeg' };
   };
 
-  const handleFile = useCallback(async (file: File) => {
-    if (!file.type.startsWith('image/')) return;
+  const identifyAndSave = useCallback(async (body: Record<string, string>) => {
+    setStatus('fetching');
+    const res = await fetch('/api/identify-book', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
 
-    setResult(null);
-    setStatusMsg('');
-    setPreview(URL.createObjectURL(file));
-    setStatus('scanning');
-    setStatusMsg('バーコードを検索中...');
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error ?? '書籍の取得に失敗しました');
+    }
 
-    try {
-      const isbn = await tryBarcodeDetect(file);
-      let body: Record<string, string>;
+    const data = await res.json();
+    const book: Book = data.book;
 
-      if (isbn) {
-        setStatusMsg(`バーコード検出: ${isbn}`);
-        body = { isbn };
-      } else {
-        setStatusMsg('AI で書籍を識別中...');
-        const { base64, mimeType } = await toBase64(file, setStatusMsg);
-        body = { imageBase64: base64, mimeType };
-      }
+    setStatus('saving');
+    setStatusMsg('重複を確認中...');
 
-      setStatus('fetching');
-      const res = await fetch('/api/identify-book', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
+    const duplicate = await findDuplicateBook(book);
+    if (duplicate) {
+      const msg = `「${duplicate.title}」は既に本棚に登録されています。重複登録はしません。`;
+      setDuplicateMsg(msg);
+      setResult(duplicate);
+      setStatus('done');
+      setStatusMsg('');
+      window.alert(msg);
+      return;
+    }
 
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error ?? '書籍の取得に失敗しました');
-      }
+    setStatusMsg('データベースに保存中...');
 
-      const data = await res.json();
-      const book: Book = data.book;
-
-      setStatus('saving');
-      setStatusMsg('データベースに保存中...');
-
-      const { error: dbErr } = await supabase.from('books').insert({
+    const { data: inserted, error: dbErr } = await supabase
+      .from('books')
+      .insert({
         isbn: book.isbn,
         title: book.title,
         authors: book.authors,
@@ -123,20 +174,62 @@ export default function BookScanner() {
         language: book.language,
         raw_metadata: book.raw_metadata,
         scan_method: book.scan_method,
-      });
+        reading_status: 'want',
+      })
+      .select(BOOK_SELECT)
+      .single();
 
-      if (dbErr) console.warn('Supabase save error:', dbErr.message);
+    if (dbErr) {
+      if (isUniqueConstraintError(dbErr)) {
+        const msg = 'このISBNの本は既に本棚に登録されています。重複登録はしません。';
+        setDuplicateMsg(msg);
+        setStatus('done');
+        setStatusMsg('');
+        window.alert(msg);
+        return;
+      }
 
-      setResult(book);
-      setHistory((prev) => [book, ...prev]);
-      setStatus('done');
-      setStatusMsg('');
+      throw dbErr;
+    }
+
+    const savedBook = (inserted as Book | null) ?? { ...book, reading_status: 'want' as const };
+    setResult(savedBook);
+    setHistory((prev) => [savedBook, ...prev]);
+    setStatus('done');
+    setStatusMsg('');
+  }, []);
+
+  const handleFile = useCallback(async (file: File) => {
+    if (!file.type.startsWith('image/')) return;
+
+    setResult(null);
+    setStatusMsg('');
+    setDuplicateMsg('');
+    setPreview(URL.createObjectURL(file));
+    setStatus('scanning');
+    setStatusMsg('バーコードを検索中...');
+
+    try {
+      const isbn = await tryBarcodeDetect(file);
+      let body: Record<string, string>;
+
+      if (isbn) {
+        const normalizedIsbn = normalizeIsbn(isbn);
+        setStatusMsg(`バーコード検出: ${normalizedIsbn}`);
+        body = { isbn: normalizedIsbn };
+      } else {
+        setStatusMsg('AI で書籍を識別中...');
+        const { base64, mimeType } = await toBase64(file, setStatusMsg);
+        body = { imageBase64: base64, mimeType };
+      }
+
+      await identifyAndSave(body);
     } catch (err) {
       console.error('[BookScanner]', err);
       setStatus('error');
       setStatusMsg(err instanceof Error ? err.message : String(err));
     }
-  }, [tryBarcodeDetect]);
+  }, [identifyAndSave, tryBarcodeDetect]);
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
@@ -158,6 +251,7 @@ export default function BookScanner() {
     setResult(null);
     setStatus('idle');
     setStatusMsg('');
+    setDuplicateMsg('');
   };
 
   const isLoading = status === 'scanning' || status === 'fetching' || status === 'saving';
@@ -229,6 +323,12 @@ export default function BookScanner() {
       {status === 'error' && (
         <div className="rounded-xl bg-red-50 px-4 py-3 dark:bg-red-900/20">
           <p className="text-sm text-red-700 dark:text-red-300">⚠️ {statusMsg}</p>
+        </div>
+      )}
+
+      {duplicateMsg && (
+        <div className="rounded-xl bg-amber-50 px-4 py-3 dark:bg-amber-900/20">
+          <p className="text-sm text-amber-800 dark:text-amber-200">{duplicateMsg}</p>
         </div>
       )}
 
