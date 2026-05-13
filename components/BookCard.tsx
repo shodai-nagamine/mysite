@@ -3,7 +3,14 @@
 import Image from 'next/image';
 import { Book } from '@/lib/supabase';
 import BuyButtons from './BuyButtons';
-import StatusBadge from './StatusBadge';
+import StatusBadge, { normalizeReadingStatus } from './StatusBadge';
+
+const statusBorderColor: Record<string, string> = {
+  wishlist: 'border-l-pink-400 dark:border-l-pink-500',
+  want:     'border-l-amber-400 dark:border-l-amber-500',
+  reading:  'border-l-sky-400 dark:border-l-sky-500',
+  done:     'border-l-emerald-400 dark:border-l-emerald-500',
+};
 
 interface BookCardProps {
   book: Book;
@@ -27,9 +34,11 @@ export default function BookCard({
   editForm,
 }: BookCardProps) {
   const publishedYear = getPublishedYear(book.published_date);
+  const status = normalizeReadingStatus(book.reading_status);
+  const borderColor = statusBorderColor[status] ?? statusBorderColor.want;
 
   return (
-    <div className="relative flex flex-col gap-5 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-700 dark:bg-zinc-900 sm:flex-row">
+    <div className={`relative flex flex-col gap-5 rounded-2xl border border-zinc-200 border-l-4 ${borderColor} bg-white p-5 shadow-sm dark:border-zinc-700 sm:flex-row`}>
 
       {/* 右上アクション（編集・削除） */}
       {topActions && (
@@ -58,8 +67,14 @@ export default function BookCard({
       {/* コンテンツ */}
       <div className={`flex min-w-0 flex-1 flex-col gap-1 overflow-hidden ${topActions ? 'pr-16' : ''}`}>
 
-        {/* タイトル・著者・ステータス */}
-        <div className="flex flex-col gap-2">
+        {/* ステータス（タイトルの上） */}
+        <div className="flex flex-wrap items-center gap-2">
+          <StatusBadge status={book.reading_status} />
+          {statusControl}
+        </div>
+
+        {/* タイトル・著者 */}
+        <div className="flex flex-col gap-1">
           <h2 className="text-lg font-bold leading-tight text-zinc-900 dark:text-white">
             {book.title}
           </h2>
@@ -68,10 +83,6 @@ export default function BookCard({
               {book.authors.join(', ')}
             </p>
           )}
-          <div className="flex flex-wrap items-center gap-2">
-            <StatusBadge status={book.reading_status} />
-            {statusControl}
-          </div>
         </div>
 
         {/* カード内アクション（ISBN取得・詳細など） */}
