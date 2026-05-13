@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 
 interface Props {
@@ -8,194 +8,257 @@ interface Props {
   onSaved: () => void;
 }
 
-function isHeic(file: File) {
-  return (
-    file.type === 'image/heic' ||
-    file.type === 'image/heif' ||
-    file.name.toLowerCase().endsWith('.heic') ||
-    file.name.toLowerCase().endsWith('.heif')
-  );
-}
+type Phase = 'idle' | 'camera' | 'extracting' | 'selecting' | 'saving' | 'done' | 'error';
 
-async function convertHeicToJpeg(file: File): Promise<Blob> {
-  const heic2any = (await import('heic2any')).default;
-  const result = await heic2any({ blob: file, toType: 'image/jpeg', quality: 0.85 });
-  return Array.isArray(result) ? result[0] : result;
-}
-
-async function toBase64(file: File): Promise<{ base64: string; mimeType: string }> {
-  let blob: Blob = file;
-  if (isHeic(file)) blob = await convertHeicToJpeg(file);
-  const bitmap = await createImageBitmap(blob);
-  const MAX = 1200;
-  const scale = Math.min(1, MAX / Math.max(bitmap.width, bitmap.height));
-  const canvas = document.createElement('canvas');
-  canvas.width = Math.round(bitmap.width * scale);
-  canvas.height = Math.round(bitmap.height * scale);
-  const ctx = canvas.getContext('2d')!;
-  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-  bitmap.close();
-  const [, base64] = canvas.toDataURL('image/jpeg', 0.9).split(',');
+async function imageToBase64(canvas: HTMLCanvasElement): Promise<{ base64: string; mimeType: string }> {
+  const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+  const [, base64] = dataUrl.split(',');
   return { base64, mimeType: 'image/jpeg' };
 }
 
 export default function HighlightScanner({ bookId, onSaved }: Props) {
   const [open, setOpen] = useState(false);
-  const [preview, setPreview] = useState<string | null>(null);
-  const [extractedText, setExtractedText] = useState('');
+  const [phase, setPhase] = useState<Phase>('idle');
+  const [errorMsg, setErrorMsg] = useState('');
+  const [snapshot, setSnapshot] = useState<string | null>(null);   // data URL for preview
+  const [blocks, setBlocks] = useState<string[]>([]);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [detectedPage, setDetectedPage] = useState<number | null>(null);
   const [page, setPage] = useState('');
   const [note, setNote] = useState('');
-  const [status, setStatus] = useState<'idle' | 'extracting' | 'saving' | 'done' | 'error'>('idle');
-  const [errorMsg, setErrorMsg] = useState('');
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const reset = useCallback(() => {
-    setPreview(null);
-    setExtractedText('');
-    setPage('');
-    setNote('');
-    setStatus('idle');
-    setErrorMsg('');
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  // カメラ停止
+  const stopCamera = useCallback(() => {
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
   }, []);
 
-  const handleFile = useCallback(async (file: File) => {
-    if (!file.type.startsWith('image/') && !isHeic(file)) return;
-    setPreview(URL.createObjectURL(file));
-    setExtractedText('');
-    setStatus('extracting');
+  // カメラ起動
+  const startCamera = useCallback(async () => {
+    setPhase('camera');
     setErrorMsg('');
-
     try {
-      const { base64, mimeType } = await toBase64(file);
-      const res = await fetch('/api/extract-highlight', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imageBase64: base64, mimeType }),
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? 'テキスト抽出に失敗しました');
-      if (!data.text) throw new Error('ハイライト・下線が見つかりませんでした');
-      setExtractedText(data.text);
-      setStatus('idle');
-    } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : 'エラーが発生しました');
-      setStatus('error');
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+    } catch {
+      setErrorMsg('カメラを起動できませんでした。カメラへのアクセスを許可してください。');
+      setPhase('error');
     }
   }, []);
 
+  // クリーンアップ
+  useEffect(() => () => stopCamera(), [stopCamera]);
+
+  // 撮影 → OCR
+  const capture = useCallback(async () => {
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas) return;
+
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext('2d')!.drawImage(video, 0, 0);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+    setSnapshot(dataUrl);
+    stopCamera();
+    setPhase('extracting');
+
+    try {
+      const [, base64] = dataUrl.split(',');
+      const res = await fetch('/api/extract-highlight', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageBase64: base64, mimeType: 'image/jpeg' }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'テキスト抽出に失敗しました');
+      if (!data.blocks?.length) throw new Error('テキストが検出されませんでした');
+
+      setBlocks(data.blocks);
+      setSelected(new Set());
+      setDetectedPage(data.page ?? null);
+      setPage(data.page ? String(data.page) : '');
+      setPhase('selecting');
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'エラーが発生しました');
+      setPhase('error');
+    }
+  }, [stopCamera]);
+
+  // テキストブロック選択トグル
+  const toggleBlock = (i: number) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(i) ? next.delete(i) : next.add(i);
+      return next;
+    });
+  };
+
+  // 保存
   async function handleSave() {
-    if (!extractedText.trim()) return;
-    setStatus('saving');
+    if (selected.size === 0) return;
+    setPhase('saving');
+    const text = blocks.filter((_, i) => selected.has(i)).join('\n');
     const { error } = await supabase.from('highlights').insert({
       book_id: bookId,
-      text: extractedText.trim(),
+      text,
       page: page ? parseInt(page, 10) : null,
       note: note.trim() || null,
     });
     if (error) {
       setErrorMsg(error.message);
-      setStatus('error');
+      setPhase('error');
     } else {
-      setStatus('done');
+      setPhase('done');
       onSaved();
-      setTimeout(() => { reset(); setOpen(false); }, 800);
+      setTimeout(() => { handleClose(); }, 900);
     }
+  }
+
+  function handleClose() {
+    stopCamera();
+    setOpen(false);
+    setPhase('idle');
+    setSnapshot(null);
+    setBlocks([]);
+    setSelected(new Set());
+    setDetectedPage(null);
+    setPage('');
+    setNote('');
+    setErrorMsg('');
+  }
+
+  function handleRetake() {
+    setSnapshot(null);
+    setBlocks([]);
+    setSelected(new Set());
+    setPhase('idle');
+    startCamera();
   }
 
   if (!open) {
     return (
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={() => { setOpen(true); startCamera(); }}
         className="flex items-center gap-2 rounded-xl bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-700 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
       >
-        📸 ハイライトを追加
+        📷 ハイライトを追加
       </button>
     );
   }
 
   return (
-    <div className="flex flex-col gap-4 rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-700 dark:bg-zinc-900">
+    <div className="flex flex-col gap-4 rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900">
+      {/* ヘッダー */}
       <div className="flex items-center justify-between">
-        <h3 className="font-semibold text-zinc-900 dark:text-white">ハイライトを追加</h3>
-        <button
-          type="button"
-          onClick={() => { reset(); setOpen(false); }}
-          className="text-sm text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
-        >
-          ✕ 閉じる
+        <h3 className="font-semibold text-zinc-900 dark:text-white">
+          {phase === 'camera' && 'ページを撮影'}
+          {phase === 'extracting' && 'テキストを読み取り中...'}
+          {phase === 'selecting' && 'テキストを選択'}
+          {phase === 'saving' && '保存中...'}
+          {phase === 'done' && '保存しました！'}
+          {phase === 'error' && 'エラー'}
+        </h3>
+        <button type="button" onClick={handleClose}
+          className="text-sm text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200">
+          ✕
         </button>
       </div>
 
-      {/* 撮影エリア */}
-      <div
-        onClick={() => status !== 'extracting' && fileInputRef.current?.click()}
-        className="flex min-h-36 cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-zinc-300 bg-zinc-50 transition hover:border-zinc-400 hover:bg-zinc-100 dark:border-zinc-600 dark:bg-zinc-800"
-      >
-        {preview ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={preview} alt="プレビュー" className="max-h-48 rounded-lg object-contain" />
-        ) : (
-          <>
-            <span className="text-4xl">📖</span>
-            <p className="text-center text-sm text-zinc-500 dark:text-zinc-400">
-              ハイライト・下線部分を撮影<br />
-              <span className="text-xs">クリックまたはカメラで撮影</span>
-            </p>
-          </>
-        )}
-      </div>
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        className="hidden"
-        onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = ''; }}
-      />
-
-      {status === 'extracting' && (
-        <div className="flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400">
-          <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
-          AIがテキストを読み取り中...
+      {/* カメラビュー */}
+      {phase === 'camera' && (
+        <div className="flex flex-col gap-3">
+          <div className="relative overflow-hidden rounded-xl bg-black">
+            <video
+              ref={videoRef}
+              playsInline
+              muted
+              className="w-full rounded-xl"
+              style={{ maxHeight: '60vh', objectFit: 'cover' }}
+            />
+          </div>
+          <button
+            type="button"
+            onClick={capture}
+            className="flex items-center justify-center gap-2 rounded-xl bg-zinc-900 py-3 text-sm font-medium text-white transition hover:bg-zinc-700 dark:bg-white dark:text-zinc-900"
+          >
+            <span className="text-xl">📸</span> 撮影する
+          </button>
         </div>
       )}
 
-      {status === 'error' && (
-        <p className="text-sm text-red-600 dark:text-red-400">⚠️ {errorMsg}</p>
-      )}
+      {/* 非表示 canvas（撮影用） */}
+      <canvas ref={canvasRef} className="hidden" />
 
-      {status === 'done' && (
-        <p className="text-sm text-emerald-600 dark:text-emerald-400">✅ 保存しました！</p>
-      )}
-
-      {/* 抽出テキスト編集 */}
-      {extractedText !== '' && status !== 'extracting' && (
+      {/* 抽出中 */}
+      {phase === 'extracting' && (
         <div className="flex flex-col gap-3">
-          <label className="grid gap-1 text-xs font-medium text-zinc-600 dark:text-zinc-300">
-            抽出されたテキスト（編集可）
-            <textarea
-              value={extractedText}
-              onChange={(e) => setExtractedText(e.target.value)}
-              rows={4}
-              className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-950 dark:text-white"
-            />
-          </label>
+          {snapshot && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={snapshot} alt="撮影画像" className="max-h-48 rounded-xl object-contain" />
+          )}
+          <div className="flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400">
+            <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
+            AIがテキストを読み取り中...
+          </div>
+        </div>
+      )}
 
+      {/* テキスト選択 */}
+      {phase === 'selecting' && (
+        <div className="flex flex-col gap-4">
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            保存したいテキストをタップして選択してください
+            {detectedPage !== null && (
+              <span className="ml-2 font-medium text-zinc-700 dark:text-zinc-300">
+                （ページ番号を自動検出: {detectedPage}）
+              </span>
+            )}
+          </p>
+
+          {/* テキストブロック一覧 */}
+          <div className="flex max-h-72 flex-col gap-2 overflow-y-auto">
+            {blocks.map((block, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => toggleBlock(i)}
+                className={`rounded-xl border px-3 py-2 text-left text-sm transition ${
+                  selected.has(i)
+                    ? 'border-yellow-400 bg-yellow-50 text-zinc-900 dark:border-yellow-500 dark:bg-yellow-900/30 dark:text-white'
+                    : 'border-zinc-200 bg-zinc-50 text-zinc-700 hover:border-zinc-300 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300'
+                }`}
+              >
+                {block}
+              </button>
+            ))}
+          </div>
+
+          {/* ページ番号・メモ */}
           <div className="grid grid-cols-2 gap-3">
             <label className="grid gap-1 text-xs font-medium text-zinc-600 dark:text-zinc-300">
-              ページ番号（任意）
+              ページ番号
               <input
                 type="number"
                 value={page}
                 onChange={(e) => setPage(e.target.value)}
-                placeholder="例: 42"
-                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+                placeholder="自動検出"
+                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
               />
             </label>
             <div /> {/* spacer */}
           </div>
-
           <label className="grid gap-1 text-xs font-medium text-zinc-600 dark:text-zinc-300">
             メモ（任意）
             <textarea
@@ -203,7 +266,7 @@ export default function HighlightScanner({ bookId, onSaved }: Props) {
               onChange={(e) => setNote(e.target.value)}
               rows={2}
               placeholder="感想・コメントなど"
-              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
             />
           </label>
 
@@ -211,19 +274,35 @@ export default function HighlightScanner({ bookId, onSaved }: Props) {
             <button
               type="button"
               onClick={handleSave}
-              disabled={status === 'saving' || !extractedText.trim()}
-              className="rounded-xl bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-700 disabled:opacity-50 dark:bg-white dark:text-zinc-900"
+              disabled={selected.size === 0}
+              className="rounded-xl bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-700 disabled:opacity-40 dark:bg-white dark:text-zinc-900"
             >
-              {status === 'saving' ? '保存中...' : '保存する'}
+              {selected.size > 0 ? `${selected.size}件を保存` : '選択してください'}
             </button>
             <button
               type="button"
-              onClick={reset}
+              onClick={handleRetake}
               className="rounded-xl border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300"
             >
-              やり直す
+              撮り直す
             </button>
           </div>
+        </div>
+      )}
+
+      {/* 完了 */}
+      {phase === 'done' && (
+        <p className="text-sm text-emerald-600 dark:text-emerald-400">✅ 保存しました！</p>
+      )}
+
+      {/* エラー */}
+      {phase === 'error' && (
+        <div className="flex flex-col gap-2">
+          <p className="text-sm text-red-600 dark:text-red-400">⚠️ {errorMsg}</p>
+          <button type="button" onClick={() => { setPhase('idle'); startCamera(); }}
+            className="w-fit rounded-xl border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300">
+            もう一度試す
+          </button>
         </div>
       )}
     </div>
