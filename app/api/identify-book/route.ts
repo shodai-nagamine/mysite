@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import OpenAI from 'openai';
 import { Book } from '@/lib/supabase';
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
 interface GoogleBooksVolume {
   volumeInfo: {
@@ -54,34 +54,21 @@ async function fetchGoogleBooks(query: string): Promise<Omit<Book, 'scan_method'
 }
 
 async function identifyByAI(imageBase64: string, mimeType: string): Promise<{ title: string; authors: string[]; isbn: string | null }> {
-  const message = await openai.chat.completions.create({
-    model: 'gpt-4o',
-    max_tokens: 512,
-    messages: [
-      {
-        role: 'user',
-        content: [
-          {
-            type: 'image_url',
-            image_url: { url: `data:${mimeType};base64,${imageBase64}`, detail: 'low' },
-          },
-          {
-            type: 'text',
-            text: `この本の表紙画像からタイトル、著者名、ISBNを読み取ってください。
-必ず以下のJSON形式のみで返してください（説明文なし）:
-{"title":"書籍タイトル","authors":["著者名1","著者名2"],"isbn":"ISBN番号またはnull"}
-ISBNが読み取れない場合はnullにしてください。著者が不明な場合は空配列にしてください。`,
-          },
-        ],
-      },
-    ],
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/identify-book-cover`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': SUPABASE_ANON_KEY,
+    },
+    body: JSON.stringify({ imageBase64, mimeType }),
   });
 
-  const text = message.choices[0].message.content ?? '';
-  const jsonMatch = text.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) throw new Error('AIからの応答をパースできませんでした');
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error ?? 'Edge Function の呼び出しに失敗しました');
+  }
 
-  return JSON.parse(jsonMatch[0]);
+  return res.json();
 }
 
 export async function POST(req: NextRequest) {
