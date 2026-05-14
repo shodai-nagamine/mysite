@@ -94,8 +94,6 @@ export default function BookList() {
   const [sortKey, setSortKey] = useState<SortKey>('created_at_desc');
   const [highlightSummaries, setHighlightSummaries] = useState<Map<string, HighlightSummary>>(new Map());
   const [tagFilters, setTagFilters] = useState<string[]>([]);
-  const [authorFilter, setAuthorFilter] = useState('');
-  const [publisherFilter, setPublisherFilter] = useState('');
 
   useEffect(() => {
     let mounted = true;
@@ -158,31 +156,17 @@ export default function BookList() {
     return Array.from(set).sort((a, b) => a.localeCompare(b, 'ja'));
   }, [books]);
 
-  const allAuthors = useMemo(() => {
-    const set = new Set<string>();
-    for (const book of books) for (const a of book.authors) if (a) set.add(a);
-    return Array.from(set).sort((a, b) => a.localeCompare(b, 'ja'));
-  }, [books]);
-
-  const allPublishers = useMemo(() => {
-    const set = new Set<string>();
-    for (const book of books) if (book.publisher) set.add(book.publisher);
-    return Array.from(set).sort((a, b) => a.localeCompare(b, 'ja'));
-  }, [books]);
-
   function toggleTagFilter(tag: string) {
     setTagFilters((prev) => prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]);
   }
 
   function clearFilters() {
     setTagFilters([]);
-    setAuthorFilter('');
-    setPublisherFilter('');
     setStatusFilter('all');
     setQuery('');
   }
 
-  const hasActiveFilters = tagFilters.length > 0 || authorFilter !== '' || publisherFilter !== '' || statusFilter !== 'all' || query.trim() !== '';
+  const hasActiveFilters = tagFilters.length > 0 || statusFilter !== 'all' || query.trim() !== '';
 
   const filteredBooks = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -191,8 +175,6 @@ export default function BookList() {
       const status = normalizeReadingStatus(book.reading_status);
       if (statusFilter !== 'all' && status !== statusFilter) return false;
       if (tagFilters.length > 0 && !tagFilters.every((t) => (book.tags ?? []).includes(t))) return false;
-      if (authorFilter && !book.authors.includes(authorFilter)) return false;
-      if (publisherFilter && book.publisher !== publisherFilter) return false;
       if (!normalizedQuery) return true;
       const haystack = [book.title, ...book.authors, book.publisher ?? '', ...(book.tags ?? [])].join(' ').toLowerCase();
       return haystack.includes(normalizedQuery);
@@ -214,7 +196,7 @@ export default function BookList() {
           return new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime();
       }
     });
-  }, [books, query, statusFilter, tagFilters, authorFilter, publisherFilter, sortKey, highlightSummaries]);
+  }, [books, query, statusFilter, tagFilters, sortKey, highlightSummaries]);
 
   async function updateStatus(book: Book, readingStatus: ReadingStatus) {
     if (!book.id) return;
@@ -483,47 +465,13 @@ export default function BookList() {
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          <input
-            type="search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="タイトル・著者・タグで検索"
-            className="min-w-0 flex-1 rounded-xl border border-zinc-200 bg-white px-4 py-2.5 text-sm text-zinc-900 outline-none transition placeholder:text-zinc-400 focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:focus:border-zinc-500"
-          />
-          {allAuthors.length > 0 && (
-            <select
-              value={authorFilter}
-              onChange={(e) => setAuthorFilter(e.target.value)}
-              className={`rounded-xl border px-3 py-2.5 text-sm outline-none transition dark:bg-zinc-900 dark:text-zinc-200 ${
-                authorFilter
-                  ? 'border-indigo-400 bg-indigo-50 text-indigo-800 dark:border-indigo-600 dark:bg-indigo-900/20 dark:text-indigo-300'
-                  : 'border-zinc-200 bg-white text-zinc-700 dark:border-zinc-700'
-              }`}
-            >
-              <option value="">著者: すべて</option>
-              {allAuthors.map((a) => (
-                <option key={a} value={a}>{a}</option>
-              ))}
-            </select>
-          )}
-          {allPublishers.length > 0 && (
-            <select
-              value={publisherFilter}
-              onChange={(e) => setPublisherFilter(e.target.value)}
-              className={`rounded-xl border px-3 py-2.5 text-sm outline-none transition dark:bg-zinc-900 dark:text-zinc-200 ${
-                publisherFilter
-                  ? 'border-indigo-400 bg-indigo-50 text-indigo-800 dark:border-indigo-600 dark:bg-indigo-900/20 dark:text-indigo-300'
-                  : 'border-zinc-200 bg-white text-zinc-700 dark:border-zinc-700'
-              }`}
-            >
-              <option value="">出版社: すべて</option>
-              {allPublishers.map((p) => (
-                <option key={p} value={p}>{p}</option>
-              ))}
-            </select>
-          )}
-        </div>
+        <input
+          type="search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="タイトル・著者・タグで検索"
+          className="w-full rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 outline-none transition placeholder:text-zinc-400 focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:focus:border-zinc-500"
+        />
         {allTags.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
             {allTags.map((tag) => (
