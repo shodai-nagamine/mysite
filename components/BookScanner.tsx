@@ -6,11 +6,11 @@ import Link from 'next/link';
 import { BrowserMultiFormatReader } from '@zxing/browser';
 import { NotFoundException } from '@zxing/library';
 import { createClient } from '@/lib/supabase/client';
-import { Book } from '@/lib/supabase';
+import { Book, ReadingStatus } from '@/lib/supabase';
 import TagInput from './TagInput';
+import { READING_STATUS_LABELS } from './StatusBadge';
 
 const supabase = createClient();
-import BookCard from './BookCard';
 
 function isHeic(file: File) {
   return (
@@ -29,14 +29,24 @@ async function convertHeicToJpeg(file: File): Promise<Blob> {
 
 type ScanStatus = 'idle' | 'scanning' | 'fetching' | 'saving' | 'done' | 'error';
 
+type PendingForm = {
+  title: string;
+  authors: string;
+  isbn: string;
+  publisher: string;
+  published_date: string;
+  tags: string[];
+  reading_status: ReadingStatus;
+  _raw: Book; // 元の取得データ（cover_url等を保持）
+};
+
 const BOOK_SELECT =
-  'id,isbn,title,authors,publisher,published_date,description,cover_url,page_count,categories,language,raw_metadata,scan_method,reading_status,created_at';
+  'id,isbn,title,authors,publisher,published_date,description,cover_url,page_count,categories,tags,language,raw_metadata,scan_method,reading_status,created_at';
 
 function normalizeIsbn(value?: string | null) {
   return value?.replace(/[^0-9Xx]/g, '').toUpperCase() ?? '';
 }
 
-/** ISBN-13（978/979始まり13桁）またはISBN-10（10桁）かどうか判定 */
 function isIsbnCode(text: string): boolean {
   const clean = normalizeIsbn(text);
   if (clean.length === 13) return clean.startsWith('978') || clean.startsWith('979');
@@ -59,38 +69,41 @@ function isUniqueConstraintError(error: unknown) {
   );
 }
 
-async function findDuplicateBook(book: Book, supabaseClient: ReturnType<typeof createClient>): Promise<Book | null> {
+async function findDuplicateBook(book: Book, client: ReturnType<typeof createClient>): Promise<Book | null> {
   const normalizedIsbn = normalizeIsbn(book.isbn);
 
   if (normalizedIsbn) {
-    const { data, error } = await supabaseClient
-      .from('books')
-      .select(BOOK_SELECT)
-      .not('isbn', 'is', null);
-
+    const { data, error } = await client.from('books').select(BOOK_SELECT).not('isbn', 'is', null);
     if (error) throw error;
-
-    const duplicate = (data ?? []).find((item) => normalizeIsbn(item.isbn) === normalizedIsbn);
-    if (duplicate) return duplicate as Book;
+    const dup = (data ?? []).find((item) => normalizeIsbn(item.isbn) === normalizedIsbn);
+    if (dup) return dup as Book;
   }
 
   const title = book.title.trim();
   if (!title) return null;
 
-  const { data, error } = await supabaseClient
-    .from('books')
-    .select(BOOK_SELECT)
-    .eq('title', title);
-
+  const { data, error } = await client.from('books').select(BOOK_SELECT).eq('title', title);
   if (error) throw error;
 
-  const duplicate = (data ?? []).find((item) => {
+  const dup = (data ?? []).find((item) => {
     const existing = item as Book;
     if (book.published_date && existing.published_date !== book.published_date) return false;
     return hasSamePrimaryAuthor(book, existing);
   });
+  return dup ? (dup as Book) : null;
+}
 
-  return duplicate ? (duplicate as Book) : null;
+function bookToPendingForm(book: Book): PendingForm {
+  return {
+    title: book.title,
+    authors: book.authors.join(', '),
+    isbn: book.isbn ?? '',
+    publisher: book.publisher ?? '',
+    published_date: book.published_date ?? '',
+    tags: book.tags ?? [],
+    reading_status: 'wishlist',
+    _raw: book,
+  };
 }
 
 export default function BookScanner() {
@@ -99,7 +112,8 @@ export default function BookScanner() {
   const [status, setStatus] = useState<ScanStatus>('idle');
   const [statusMsg, setStatusMsg] = useState('');
   const [duplicateMsg, setDuplicateMsg] = useState('');
-  const [result, setResult] = useState<Book | null>(null);
+  const [pending, setPending] = useState<PendingForm | null>(null); // 未確定の取得結果
+  const [result, setResult] = useState<Book | null>(null);          // DB保存済み
   const [history, setHistory] = useState<Book[]>([]);
   const [cameraOpen, setCameraOpen] = useState(false);
 
@@ -127,7 +141,6 @@ export default function BookScanner() {
       const w = img.naturalWidth;
       const h = img.naturalHeight;
 
-      // スキャン対象領域: 全体・右半分・下半分・右下1/4（バーコードは裏表紙右下が多い）
       const regions = [
         { sx: 0,      sy: 0,      sw: w,     sh: h     },
         { sx: w / 2,  sy: 0,      sw: w / 2, sh: h     },
@@ -136,14 +149,11 @@ export default function BookScanner() {
       ];
 
       const candidates: string[] = [];
-
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const BarcodeDetectorAPI = (window as any).BarcodeDetector;
 
       for (const region of regions) {
         if (candidates.find(isIsbnCode)) break;
-
-        // 領域を切り出してcanvasに描画（2倍スケールで検出精度向上）
         const scale = region.sw < 600 ? 2 : 1;
         const canvas = document.createElement('canvas');
         canvas.width = region.sw * scale;
@@ -157,12 +167,9 @@ export default function BookScanner() {
             const detector = new BarcodeDetectorAPI({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e'] });
             const results = await detector.detect(canvas);
             for (const r of results) candidates.push(r.rawValue as string);
-          } catch {
-            // 非対応フォーマット等は無視
-          }
+          } catch { /* 非対応フォーマット */ }
         }
 
-        // zxingフォールバック（全体スキャンのみ）
         if (candidates.length === 0 && region.sx === 0 && region.sy === 0) {
           try {
             const reader = new BrowserMultiFormatReader();
@@ -201,10 +208,8 @@ export default function BookScanner() {
     return { base64, mimeType: 'image/jpeg' };
   };
 
-  const identifyAndSave = useCallback(async (body: Record<string, string>) => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('ログインが必要です');
-
+  // ① 書籍情報の取得のみ（DB保存しない）
+  const identifyOnly = useCallback(async (body: Record<string, string>) => {
     setStatus('fetching');
     const res = await fetch('/api/identify-book', {
       method: 'POST',
@@ -218,16 +223,41 @@ export default function BookScanner() {
     }
 
     const data = await res.json();
-    const book: Book = data.book;
+    return data.book as Book;
+  }, []);
 
+  // ② 確定ボタン押下時にDB保存
+  const confirmSave = useCallback(async () => {
+    if (!pending) return;
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { alert('ログインが必要です'); return; }
+
+    const book = pending._raw;
+    const title = pending.title.trim();
+    if (!title) { alert('タイトルは必須です'); return; }
+
+    const authors = pending.authors.split(',').map((a) => a.trim()).filter(Boolean);
+
+    // 重複確認
     setStatus('saving');
     setStatusMsg('重複を確認中...');
 
-    const duplicate = await findDuplicateBook(book, supabase);
+    const checkBook: Book = {
+      ...book,
+      title,
+      authors,
+      isbn: normalizeIsbn(pending.isbn) || book.isbn,
+      publisher: pending.publisher || book.publisher,
+      published_date: pending.published_date || book.published_date,
+    };
+
+    const duplicate = await findDuplicateBook(checkBook, supabase);
     if (duplicate) {
-      const msg = `「${duplicate.title}」は既に本棚に登録されています。重複登録はしません。`;
+      const msg = `「${duplicate.title}」は既に本棚に登録されています。`;
       setDuplicateMsg(msg);
       setResult(duplicate);
+      setPending(null);
       setStatus('done');
       setStatusMsg('');
       window.alert(msg);
@@ -240,46 +270,51 @@ export default function BookScanner() {
       .from('books')
       .insert({
         user_id: user.id,
-        isbn: book.isbn,
-        title: book.title,
-        authors: book.authors,
-        publisher: book.publisher,
-        published_date: book.published_date,
+        isbn: normalizeIsbn(pending.isbn) || null,
+        title,
+        authors,
+        publisher: pending.publisher.trim() || null,
+        published_date: pending.published_date.trim() || null,
         description: book.description,
         cover_url: book.cover_url,
         page_count: book.page_count,
         categories: book.categories,
+        tags: pending.tags,
         language: book.language,
         raw_metadata: book.raw_metadata,
         scan_method: book.scan_method,
-        reading_status: 'wishlist',
+        reading_status: pending.reading_status,
       })
       .select(BOOK_SELECT)
       .single();
 
     if (dbErr) {
       if (isUniqueConstraintError(dbErr)) {
-        const msg = 'このISBNの本は既に本棚に登録されています。重複登録はしません。';
+        const msg = 'このISBNの本は既に本棚に登録されています。';
         setDuplicateMsg(msg);
+        setPending(null);
         setStatus('done');
         setStatusMsg('');
         window.alert(msg);
         return;
       }
-
-      throw dbErr;
+      setStatus('error');
+      setStatusMsg(dbErr.message);
+      return;
     }
 
-    const savedBook = (inserted as Book | null) ?? { ...book, reading_status: 'wishlist' as const };
+    const savedBook = (inserted as Book) ?? { ...checkBook, reading_status: pending.reading_status };
     setResult(savedBook);
     setHistory((prev) => [savedBook, ...prev]);
+    setPending(null);
     setStatus('done');
     setStatusMsg('');
-  }, []);
+  }, [pending]);
 
   const handleFile = useCallback(async (file: File) => {
     if (!file.type.startsWith('image/')) return;
 
+    setPending(null);
     setResult(null);
     setStatusMsg('');
     setDuplicateMsg('');
@@ -296,19 +331,22 @@ export default function BookScanner() {
         setStatusMsg(`ISBNバーコード検出: ${normalizedIsbn}`);
         body = { isbn: normalizedIsbn };
       } else {
-        if (detected) setStatusMsg(`バーコード検出（ISBN以外）→ AI で識別中...`);
+        if (detected) setStatusMsg('バーコード検出（ISBN以外）→ AI で識別中...');
         else setStatusMsg('AI で書籍を識別中...');
         const { base64, mimeType } = await toBase64(file, setStatusMsg);
         body = { imageBase64: base64, mimeType };
       }
 
-      await identifyAndSave(body);
+      const book = await identifyOnly(body);
+      setPending(bookToPendingForm(book));
+      setStatus('done');
+      setStatusMsg('');
     } catch (err) {
       console.error('[BookScanner]', err);
       setStatus('error');
       setStatusMsg(err instanceof Error ? err.message : String(err));
     }
-  }, [identifyAndSave, tryBarcodeDetect]);
+  }, [identifyOnly, tryBarcodeDetect]);
 
   const startCamera = useCallback(async () => {
     setCameraOpen(true);
@@ -341,19 +379,15 @@ export default function BookScanner() {
     setCameraOpen(false);
     canvas.toBlob((blob) => {
       if (!blob) return;
-      const file = new File([blob], 'capture.jpg', { type: 'image/jpeg' });
-      handleFile(file);
+      handleFile(new File([blob], 'capture.jpg', { type: 'image/jpeg' }));
     }, 'image/jpeg', 0.9);
   }, [stopCamera, handleFile]);
 
-  const handleDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      const file = e.dataTransfer.files[0];
-      if (file) handleFile(file);
-    },
-    [handleFile]
-  );
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    const file = e.dataTransfer.files[0];
+    if (file) handleFile(file);
+  }, [handleFile]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -365,6 +399,7 @@ export default function BookScanner() {
     stopCamera();
     setCameraOpen(false);
     setPreview(null);
+    setPending(null);
     setResult(null);
     setStatus('idle');
     setStatusMsg('');
@@ -406,7 +441,6 @@ export default function BookScanner() {
         </div>
       ) : (
         <>
-          {/* ファイルアップロードエリア */}
           <div
             onDrop={handleDrop}
             onDragOver={(e) => e.preventDefault()}
@@ -415,31 +449,17 @@ export default function BookScanner() {
           >
             {preview ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={preview}
-                alt="プレビュー"
-                className="max-h-48 max-w-full rounded-lg object-contain shadow"
-              />
+              <img src={preview} alt="プレビュー" className="max-h-48 max-w-full rounded-lg object-contain shadow" />
             ) : (
               <>
                 <span className="text-5xl">🖼️</span>
                 <div className="text-center">
-                  <p className="font-medium text-zinc-700 dark:text-zinc-300">
-                    画像をアップロード
-                  </p>
-                  <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-                    クリック・ドラッグ＆ドロップ
-                  </p>
+                  <p className="font-medium text-zinc-700 dark:text-zinc-300">画像をアップロード</p>
+                  <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">クリック・ドラッグ＆ドロップ</p>
                 </div>
               </>
             )}
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={handleInputChange}
-            />
+            <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleInputChange} />
           </div>
 
           <div className="flex gap-3">
@@ -471,7 +491,6 @@ export default function BookScanner() {
         </>
       )}
 
-      {/* 非表示 canvas（カメラキャプチャ用） */}
       <canvas ref={scanCanvasRef} className="hidden" />
 
       {isLoading && (
@@ -493,38 +512,140 @@ export default function BookScanner() {
         </div>
       )}
 
+      {/* 未確定の取得結果 — 編集可能フォーム */}
+      {pending && (
+        <div className="flex flex-col gap-4 rounded-xl border border-blue-200 bg-blue-50 p-4 dark:border-blue-800 dark:bg-blue-950/30">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-semibold text-blue-800 dark:text-blue-300">📚 取得結果 — 確認・編集してから確定</p>
+            <button onClick={reset} className="text-xs text-zinc-400 hover:text-zinc-600">やり直す</button>
+          </div>
+
+          {/* 表紙プレビュー */}
+          {pending._raw.cover_url && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={pending._raw.cover_url} alt="表紙" className="h-32 w-auto self-start rounded-lg object-contain shadow" />
+          )}
+
+          <div className="grid gap-3">
+            <label className="grid gap-1 text-xs font-medium text-zinc-700 dark:text-zinc-300">
+              タイトル *
+              <input
+                value={pending.title}
+                onChange={(e) => setPending((p) => p ? { ...p, title: e.target.value } : p)}
+                className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-blue-400 dark:border-zinc-600 dark:bg-zinc-900 dark:text-white"
+              />
+            </label>
+
+            <label className="grid gap-1 text-xs font-medium text-zinc-700 dark:text-zinc-300">
+              著者
+              <input
+                value={pending.authors}
+                onChange={(e) => setPending((p) => p ? { ...p, authors: e.target.value } : p)}
+                placeholder="複数の場合はカンマ区切り"
+                className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-blue-400 dark:border-zinc-600 dark:bg-zinc-900 dark:text-white"
+              />
+            </label>
+
+            <div className="grid grid-cols-2 gap-3">
+              <label className="grid gap-1 text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                ISBN
+                <input
+                  value={pending.isbn}
+                  onChange={(e) => setPending((p) => p ? { ...p, isbn: e.target.value } : p)}
+                  className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-blue-400 dark:border-zinc-600 dark:bg-zinc-900 dark:text-white"
+                />
+              </label>
+              <label className="grid gap-1 text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                発行年
+                <input
+                  value={pending.published_date}
+                  onChange={(e) => setPending((p) => p ? { ...p, published_date: e.target.value } : p)}
+                  className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-blue-400 dark:border-zinc-600 dark:bg-zinc-900 dark:text-white"
+                />
+              </label>
+            </div>
+
+            <label className="grid gap-1 text-xs font-medium text-zinc-700 dark:text-zinc-300">
+              出版社
+              <input
+                value={pending.publisher}
+                onChange={(e) => setPending((p) => p ? { ...p, publisher: e.target.value } : p)}
+                className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-blue-400 dark:border-zinc-600 dark:bg-zinc-900 dark:text-white"
+              />
+            </label>
+
+            <div className="grid gap-1 text-xs font-medium text-zinc-700 dark:text-zinc-300">
+              タグ
+              <TagInput
+                tags={pending.tags}
+                onChange={(tags) => setPending((p) => p ? { ...p, tags } : p)}
+              />
+            </div>
+
+            <label className="grid gap-1 text-xs font-medium text-zinc-700 dark:text-zinc-300">
+              ステータス
+              <select
+                value={pending.reading_status}
+                onChange={(e) => setPending((p) => p ? { ...p, reading_status: e.target.value as ReadingStatus } : p)}
+                className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none dark:border-zinc-600 dark:bg-zinc-900 dark:text-white"
+              >
+                {(['wishlist', 'want', 'reading', 'done'] as ReadingStatus[]).map((s) => (
+                  <option key={s} value={s}>{READING_STATUS_LABELS[s]}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <button
+            type="button"
+            onClick={confirmSave}
+            disabled={isLoading}
+            className="rounded-xl bg-blue-600 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
+          >
+            {status === 'saving' ? '保存中...' : '✅ 確定して本棚に追加'}
+          </button>
+        </div>
+      )}
+
+      {/* DB保存済みの結果 */}
       {result && (
         <div className="flex flex-col gap-2">
-          <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">取得結果</p>
+          <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">✅ 本棚に追加しました</p>
           <div
             onClick={() => result.id && router.push(`/books/${result.id}`)}
             className={result.id ? 'cursor-pointer' : ''}
           >
-            <BookCard book={result} />
-          </div>
-          {result.id && (
-            <div className="flex flex-col gap-2 rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
-              <p className="text-xs font-medium text-zinc-500">🏷️ タグを追加</p>
-              <TagInput
-                tags={result.tags ?? []}
-                onChange={async (tags) => {
-                  await supabase.from('books').update({ tags }).eq('id', result.id!);
-                  setResult((prev) => prev ? { ...prev, tags } : prev);
-                }}
-              />
+            <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900">
+              <p className="font-medium text-zinc-900 dark:text-white">{result.title}</p>
+              <p className="text-sm text-zinc-500">{result.authors.join(', ')}</p>
+              {(result.tags ?? []).length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {(result.tags ?? []).map((t) => (
+                    <span key={t} className="rounded-full bg-blue-50 px-2 py-0.5 text-xs text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">#{t}</span>
+                  ))}
+                </div>
+              )}
             </div>
-          )}
-          {result.id && (
-            <Link
-              href={`/books/${result.id}`}
-              className="flex items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          </div>
+          <div className="flex gap-2">
+            {result.id && (
+              <Link
+                href={`/books/${result.id}`}
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+              >
+                ✏️ 詳細・編集
+              </Link>
+            )}
+            <button
+              onClick={reset}
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-zinc-300 px-4 py-3 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800"
             >
-              ✏️ 詳細・編集
-            </Link>
-          )}
+              📷 続けてスキャン
+            </button>
+          </div>
           <Link
             href="/books"
-            className="mt-1 flex items-center justify-center gap-2 rounded-xl border border-zinc-300 px-4 py-3 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            className="flex items-center justify-center gap-2 rounded-xl border border-zinc-300 px-4 py-3 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800"
           >
             📚 本棚を見る →
           </Link>
@@ -537,7 +658,10 @@ export default function BookScanner() {
             このセッションの履歴 ({history.length - 1}件)
           </p>
           {history.slice(1).map((book, i) => (
-            <BookCard key={i} book={book} />
+            <div key={i} className="rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
+              <p className="text-sm font-medium text-zinc-900 dark:text-white">{book.title}</p>
+              <p className="text-xs text-zinc-500">{book.authors.join(', ')}</p>
+            </div>
           ))}
         </div>
       )}
