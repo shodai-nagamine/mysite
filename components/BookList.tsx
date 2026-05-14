@@ -416,22 +416,15 @@ export default function BookList() {
     <section className="w-full">
       <div className="mb-6 flex flex-col gap-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex flex-wrap gap-2">
-          {FILTERS.map((filter) => (
-            <button
-              key={filter.value}
-              type="button"
-              onClick={() => setStatusFilter(filter.value)}
-              className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
-                statusFilter === filter.value
-                  ? 'bg-zinc-900 text-white dark:bg-white dark:text-zinc-900'
-                  : 'border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800'
-              }`}
-            >
-              {filter.label}
-            </button>
-          ))}
-          </div>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as 'all' | ReadingStatus)}
+            className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-700 outline-none transition focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
+          >
+            {FILTERS.map((filter) => (
+              <option key={filter.value} value={filter.value}>{filter.label}</option>
+            ))}
+          </select>
           <div className="flex shrink-0 items-center gap-2">
             {/* ソート */}
             <select
