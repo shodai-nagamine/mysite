@@ -200,24 +200,7 @@ export default function BookScanner() {
     return { base64, mimeType: 'image/jpeg' };
   };
 
-  const uploadCoverImage = useCallback(async (file: File): Promise<string | null> => {
-    try {
-      let blob: Blob = file;
-      if (isHeic(file)) blob = await convertHeicToJpeg(file);
-      const ext = 'jpg';
-      const path = `${Date.now()}.${ext}`;
-      const { error } = await supabase.storage
-        .from('book-covers')
-        .upload(path, blob, { contentType: 'image/jpeg', upsert: false });
-      if (error) return null;
-      const { data } = supabase.storage.from('book-covers').getPublicUrl(path);
-      return data.publicUrl;
-    } catch {
-      return null;
-    }
-  }, []);
-
-  const identifyAndSave = useCallback(async (body: Record<string, string>, originalFile?: File) => {
+  const identifyAndSave = useCallback(async (body: Record<string, string>) => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('ログインが必要です');
 
@@ -234,15 +217,7 @@ export default function BookScanner() {
     }
 
     const data = await res.json();
-    let book: Book = data.book;
-
-    // AI スキャンで表紙画像がない場合のみ撮影画像をアップロード
-    // バーコード・ISBN検索の場合は撮影写真を表紙に使わない
-    if (!book.cover_url && originalFile && book.scan_method === 'ai') {
-      setStatusMsg('表紙画像をアップロード中...');
-      const uploadedUrl = await uploadCoverImage(originalFile);
-      if (uploadedUrl) book = { ...book, cover_url: uploadedUrl };
-    }
+    const book: Book = data.book;
 
     setStatus('saving');
     setStatusMsg('重複を確認中...');
@@ -299,7 +274,7 @@ export default function BookScanner() {
     setHistory((prev) => [savedBook, ...prev]);
     setStatus('done');
     setStatusMsg('');
-  }, [uploadCoverImage]);
+  }, []);
 
   const handleFile = useCallback(async (file: File) => {
     if (!file.type.startsWith('image/')) return;
@@ -326,7 +301,7 @@ export default function BookScanner() {
         body = { imageBase64: base64, mimeType };
       }
 
-      await identifyAndSave(body, file);
+      await identifyAndSave(body);
     } catch (err) {
       console.error('[BookScanner]', err);
       setStatus('error');
