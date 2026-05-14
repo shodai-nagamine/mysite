@@ -38,6 +38,12 @@ export default function AppHeader() {
           <span className="hidden text-xs text-zinc-500 sm:block dark:text-zinc-400">
             {user.email}
           </span>
+          <Link
+            href="/settings"
+            className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-600 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          >
+            設定
+          </Link>
           <button
             onClick={handleLogout}
             className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-600 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"

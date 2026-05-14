@@ -1,0 +1,10 @@
+{
+  "id": "bookshelf-sync",
+  "name": "Bookshelf Sync",
+  "version": "1.0.0",
+  "minAppVersion": "1.4.0",
+  "description": "Sync books and highlights from your Bookshelf app into Obsidian.",
+  "author": "Bookshelf",
+  "authorUrl": "",
+  "isDesktopOnly": false
+}

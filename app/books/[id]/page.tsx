@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { buildObsidianMarkdown, safeFilename } from '@/lib/obsidian';
 import Link from 'next/link';
 import { supabase, Book, ReadingStatus } from '@/lib/supabase';
 import BookCard from '@/components/BookCard';
@@ -185,41 +186,16 @@ export default function BookDetailPage() {
       .order('page', { ascending: true, nullsFirst: false })
       .order('created_at', { ascending: true });
 
-    const highlights = (hlData ?? []) as { text: string; page: number | null; note: string | null }[];
-    const { READING_STATUS_LABELS } = await import('@/components/StatusBadge');
-    const { normalizeReadingStatus } = await import('@/components/StatusBadge');
+    const highlights = (hlData ?? []) as { text: string; page: number | null; note: string | null; created_at: string }[];
+    const { READING_STATUS_LABELS, normalizeReadingStatus } = await import('@/components/StatusBadge');
+    const status = normalizeReadingStatus(book.reading_status);
 
-    const lines: string[] = [
-      `# ${book.title}`,
-      '',
-      `- **著者**: ${book.authors.join(', ') || '不明'}`,
-      book.publisher ? `- **出版社**: ${book.publisher}` : '',
-      book.published_date ? `- **発行年**: ${book.published_date}` : '',
-      book.isbn ? `- **ISBN**: ${book.isbn}` : '',
-      `- **ステータス**: ${READING_STATUS_LABELS[normalizeReadingStatus(book.reading_status)]}`,
-      book.page_count ? `- **ページ数**: ${book.page_count}` : '',
-      '',
-    ].filter((l) => l !== null);
-
-    if (book.description) {
-      lines.push('## 概要', '', book.description, '');
-    }
-
-    if (highlights.length > 0) {
-      lines.push('## ハイライト', '');
-      for (const h of highlights) {
-        if (h.page) lines.push(`### p. ${h.page}`, '');
-        lines.push(...h.text.split('\n').map((l) => `> ${l}`), '');
-        if (h.note) lines.push(`💬 ${h.note}`, '');
-      }
-    }
-
-    const md = lines.join('\n');
+    const md = buildObsidianMarkdown(book, highlights, READING_STATUS_LABELS[status]);
     const blob = new Blob([md], { type: 'text/markdown; charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${book.title.replace(/[\\/:*?"<>|]/g, '_')}.md`;
+    a.download = `${safeFilename(book.title)}.md`;
     a.click();
     URL.revokeObjectURL(url);
     setExporting(false);
