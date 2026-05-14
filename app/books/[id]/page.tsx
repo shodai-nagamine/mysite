@@ -9,9 +9,10 @@ import BookCard from '@/components/BookCard';
 import { normalizeReadingStatus, READING_STATUS_LABELS } from '@/components/StatusBadge';
 import HighlightScanner from '@/components/HighlightScanner';
 import HighlightList from '@/components/HighlightList';
+import TagInput from '@/components/TagInput';
 
 const BOOK_SELECT =
-  'id,isbn,title,authors,publisher,published_date,description,cover_url,page_count,categories,language,raw_metadata,scan_method,reading_status,created_at';
+  'id,isbn,title,authors,publisher,published_date,description,cover_url,page_count,categories,language,raw_metadata,scan_method,reading_status,created_at,tags';
 
 type EditForm = {
   isbn: string;
@@ -19,6 +20,7 @@ type EditForm = {
   authors: string;
   publisher: string;
   published_date: string;
+  tags: string[];
 };
 
 function normalizeIsbn(value?: string | null) {
@@ -32,6 +34,7 @@ function toEditForm(book: Book): EditForm {
     authors: book.authors.join(', '),
     publisher: book.publisher ?? '',
     published_date: book.published_date ?? '',
+    tags: book.tags ?? [],
   };
 }
 
@@ -114,6 +117,7 @@ export default function BookDetailPage() {
       authors,
       publisher: editForm.publisher.trim() || null,
       published_date: editForm.published_date.trim() || null,
+      tags: editForm.tags,
     };
 
     const { data, error: dbError } = await supabase
@@ -391,6 +395,13 @@ export default function BookDetailPage() {
                     className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
                   />
                 </label>
+                <div className="grid gap-1 text-xs font-medium text-zinc-600 dark:text-zinc-300">
+                  タグ
+                  <TagInput
+                    tags={editForm.tags}
+                    onChange={(tags) => setEditForm((prev) => prev ? { ...prev, tags } : prev)}
+                  />
+                </div>
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
@@ -428,6 +439,20 @@ export default function BookDetailPage() {
             ) : null
           }
         />
+        {/* タグセクション */}
+        <section className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">🏷️ タグ</h2>
+          </div>
+          <TagInput
+            tags={book.tags ?? []}
+            onChange={async (tags) => {
+              const { data } = await supabase.from('books').update({ tags }).eq('id', book.id!).select('*').single();
+              if (data) setBook(data as Book);
+            }}
+          />
+        </section>
+
         {/* ハイライトセクション */}
         <section className="flex flex-col gap-4">
           <div className="flex items-center justify-between">

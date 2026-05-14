@@ -7,6 +7,7 @@ import { BrowserMultiFormatReader } from '@zxing/browser';
 import { NotFoundException } from '@zxing/library';
 import { createClient } from '@/lib/supabase/client';
 import { Book } from '@/lib/supabase';
+import TagInput from './TagInput';
 
 const supabase = createClient();
 import BookCard from './BookCard';
@@ -500,12 +501,27 @@ export default function BookScanner() {
             className={result.id ? 'cursor-pointer' : ''}
           >
             <BookCard book={result} />
-            {result.id && (
-              <p className="mt-1 text-center text-xs text-zinc-400 dark:text-zinc-500">
-                タップして本棚の詳細を見る →
-              </p>
-            )}
           </div>
+          {result.id && (
+            <div className="flex flex-col gap-2 rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
+              <p className="text-xs font-medium text-zinc-500">🏷️ タグを追加</p>
+              <TagInput
+                tags={result.tags ?? []}
+                onChange={async (tags) => {
+                  await supabase.from('books').update({ tags }).eq('id', result.id!);
+                  setResult((prev) => prev ? { ...prev, tags } : prev);
+                }}
+              />
+            </div>
+          )}
+          {result.id && (
+            <Link
+              href={`/books/${result.id}`}
+              className="flex items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            >
+              ✏️ 詳細・編集
+            </Link>
+          )}
           <Link
             href="/books"
             className="mt-1 flex items-center justify-center gap-2 rounded-xl border border-zinc-300 px-4 py-3 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800"

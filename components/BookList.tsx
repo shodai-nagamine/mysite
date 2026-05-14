@@ -9,7 +9,7 @@ import { Book, ReadingStatus, supabase } from '@/lib/supabase';
 import { normalizeReadingStatus, READING_STATUS_LABELS } from '@/components/StatusBadge';
 
 type ViewMode = 'card' | 'list';
-type SortKey = 'created_at_desc' | 'created_at_asc' | 'title_asc' | 'title_desc' | 'highlight_desc';
+type SortKey = 'created_at_desc' | 'created_at_asc' | 'title_asc' | 'title_desc' | 'highlight_desc' | 'tag_asc';
 type HighlightSummary = { count: number; latestText: string | null };
 
 const SORT_OPTIONS: Array<{ value: SortKey; label: string }> = [
@@ -18,6 +18,7 @@ const SORT_OPTIONS: Array<{ value: SortKey; label: string }> = [
   { value: 'title_asc',       label: 'タイトル（昇順）' },
   { value: 'title_desc',      label: 'タイトル（降順）' },
   { value: 'highlight_desc',  label: 'ハイライト（多い順）' },
+  { value: 'tag_asc',         label: 'タグ（昇順）' },
 ];
 
 const FILTERS: Array<{ value: 'all' | ReadingStatus; label: string }> = [
@@ -170,6 +171,8 @@ export default function BookList() {
           return b.title.localeCompare(a.title, 'ja');
         case 'highlight_desc':
           return (highlightSummaries.get(b.id ?? '')?.count ?? 0) - (highlightSummaries.get(a.id ?? '')?.count ?? 0);
+        case 'tag_asc':
+          return (a.tags?.[0] ?? 'zzz').localeCompare(b.tags?.[0] ?? 'zzz', 'ja');
         default:
           return new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime();
       }
