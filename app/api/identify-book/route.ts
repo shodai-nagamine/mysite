@@ -332,9 +332,11 @@ export async function POST(req: NextRequest) {
       scanMethod = 'ai';
       const aiResult = await identifyByAI(imageBase64, mimeType);
 
-      // ① AIがISBNを返した場合：各APIで完全取得
+      // ① AIがISBNテキストを検出した場合：バーコードスキャンと同等に扱い最優先で取得
       if (aiResult.isbn) {
         bookData = await fetchBookByIsbn(aiResult.isbn);
+        // ISBNで書籍を取得できた場合はバーコードスキャン扱い（撮影写真を表紙に使わない）
+        if (bookData) scanMethod = 'barcode';
       }
 
       // ② ISBNなし／取得失敗 → タイトルでGoogle Books検索

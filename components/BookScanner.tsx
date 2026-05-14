@@ -123,27 +123,53 @@ export default function BookScanner() {
       await img.decode();
       imgRef.current = img;
 
+      const w = img.naturalWidth;
+      const h = img.naturalHeight;
+
+      // スキャン対象領域: 全体・右半分・下半分・右下1/4（バーコードは裏表紙右下が多い）
+      const regions = [
+        { sx: 0,      sy: 0,      sw: w,     sh: h     },
+        { sx: w / 2,  sy: 0,      sw: w / 2, sh: h     },
+        { sx: 0,      sy: h / 2,  sw: w,     sh: h / 2 },
+        { sx: w / 2,  sy: h / 2,  sw: w / 2, sh: h / 2 },
+      ];
+
       const candidates: string[] = [];
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const BarcodeDetectorAPI = (window as any).BarcodeDetector;
-      if (BarcodeDetectorAPI) {
-        try {
-          const detector = new BarcodeDetectorAPI({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e'] });
-          const results = await detector.detect(img);
-          for (const r of results) candidates.push(r.rawValue as string);
-        } catch {
-          // 非対応フォーマット等は無視
-        }
-      }
 
-      if (candidates.length === 0) {
-        try {
-          const reader = new BrowserMultiFormatReader();
-          const res = await reader.decodeFromImageElement(img);
-          candidates.push(res.getText());
-        } catch (e) {
-          if (!(e instanceof NotFoundException)) console.warn('[barcode]', e);
+      for (const region of regions) {
+        if (candidates.find(isIsbnCode)) break;
+
+        // 領域を切り出してcanvasに描画（2倍スケールで検出精度向上）
+        const scale = region.sw < 600 ? 2 : 1;
+        const canvas = document.createElement('canvas');
+        canvas.width = region.sw * scale;
+        canvas.height = region.sh * scale;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) continue;
+        ctx.drawImage(img, region.sx, region.sy, region.sw, region.sh, 0, 0, canvas.width, canvas.height);
+
+        if (BarcodeDetectorAPI) {
+          try {
+            const detector = new BarcodeDetectorAPI({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e'] });
+            const results = await detector.detect(canvas);
+            for (const r of results) candidates.push(r.rawValue as string);
+          } catch {
+            // 非対応フォーマット等は無視
+          }
+        }
+
+        // zxingフォールバック（全体スキャンのみ）
+        if (candidates.length === 0 && region.sx === 0 && region.sy === 0) {
+          try {
+            const reader = new BrowserMultiFormatReader();
+            const res = await reader.decodeFromImageElement(img);
+            candidates.push(res.getText());
+          } catch (e) {
+            if (!(e instanceof NotFoundException)) console.warn('[barcode]', e);
+          }
         }
       }
 
