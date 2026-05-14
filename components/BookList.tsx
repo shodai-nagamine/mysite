@@ -669,18 +669,7 @@ export default function BookList() {
                   </>
                 ) : null
               }
-              actionControls={
-                book.id ? (
-                  <button
-                    type="button"
-                    onClick={() => refreshMetadataFromIsbn(book)}
-                    disabled={busyAction !== null || !normalizeIsbn(book.isbn)}
-                    className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-medium text-sky-800 transition hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-900/60 dark:bg-sky-900/20 dark:text-sky-200 dark:hover:bg-sky-900/30"
-                  >
-                    {busyAction === `refresh:${book.id}` ? '取得中...' : 'ISBNから書誌情報を取得'}
-                  </button>
-                ) : null
-              }
+              actionControls={null}
               editForm={
                 book.id && editingId === book.id && editForm ? (
                   <div className="mt-4 grid gap-3 rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-950">
