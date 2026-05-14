@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 
 interface ApiToken {
@@ -57,6 +58,11 @@ export default function SettingsPage() {
 
   return (
     <main className="mx-auto max-w-2xl px-4 py-8">
+      <div className="mb-6 flex items-center gap-3">
+        <Link href="/" className="text-sm text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200">
+          ← ホームに戻る
+        </Link>
+      </div>
       <h1 className="mb-6 text-xl font-bold text-zinc-900 dark:text-white">設定</h1>
 
       <section className="mb-8">
