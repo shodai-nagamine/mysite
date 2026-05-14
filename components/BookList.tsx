@@ -6,6 +6,8 @@ import BookCard from '@/components/BookCard';
 import { Book, ReadingStatus, supabase } from '@/lib/supabase';
 import { normalizeReadingStatus, READING_STATUS_LABELS } from '@/components/StatusBadge';
 
+type ViewMode = 'card' | 'list';
+
 const FILTERS: Array<{ value: 'all' | ReadingStatus; label: string }> = [
   { value: 'all', label: 'すべて' },
   { value: 'wishlist', label: '欲しい！' },
@@ -52,6 +54,12 @@ export default function BookList() {
   const [books, setBooks] = useState<Book[]>([]);
   const [statusFilter, setStatusFilter] = useState<'all' | ReadingStatus>('all');
   const [query, setQuery] = useState('');
+  const [viewMode, setViewMode] = useState<ViewMode>(() => {
+    if (typeof window !== 'undefined') {
+      return (localStorage.getItem('bookshelf-view') as ViewMode) ?? 'card';
+    }
+    return 'card';
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
@@ -321,7 +329,8 @@ export default function BookList() {
   return (
     <section className="w-full">
       <div className="mb-6 flex flex-col gap-4">
-        <div className="flex flex-wrap gap-2">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-wrap gap-2">
           {FILTERS.map((filter) => (
             <button
               key={filter.value}
@@ -336,6 +345,26 @@ export default function BookList() {
               {filter.label}
             </button>
           ))}
+          </div>
+          {/* 表示切替 */}
+          <div className="flex shrink-0 overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-700">
+            <button
+              type="button"
+              onClick={() => { setViewMode('card'); localStorage.setItem('bookshelf-view', 'card'); }}
+              title="カード表示"
+              className={`px-3 py-2 text-sm transition ${viewMode === 'card' ? 'bg-zinc-900 text-white dark:bg-white dark:text-zinc-900' : 'bg-white text-zinc-500 hover:bg-zinc-50 dark:bg-zinc-900 dark:text-zinc-400'}`}
+            >
+              ▦
+            </button>
+            <button
+              type="button"
+              onClick={() => { setViewMode('list'); localStorage.setItem('bookshelf-view', 'list'); }}
+              title="リスト表示"
+              className={`px-3 py-2 text-sm transition ${viewMode === 'list' ? 'bg-zinc-900 text-white dark:bg-white dark:text-zinc-900' : 'bg-white text-zinc-500 hover:bg-zinc-50 dark:bg-zinc-900 dark:text-zinc-400'}`}
+            >
+              ☰
+            </button>
+          </div>
         </div>
 
         <input
@@ -361,7 +390,43 @@ export default function BookList() {
         <div className="rounded-xl border border-zinc-200 bg-white px-4 py-8 text-center text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400">
           条件に合う本がありません
         </div>
+      ) : viewMode === 'list' ? (
+        /* リスト表示 */
+        <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-900">
+          {filteredBooks.map((book, i) => (
+            <Link
+              key={book.id ?? `${book.title}-${book.created_at}`}
+              href={book.id ? `/books/${book.id}` : '#'}
+              className={`flex items-center gap-3 px-4 py-3 transition hover:bg-zinc-50 dark:hover:bg-zinc-800 ${i > 0 ? 'border-t border-zinc-100 dark:border-zinc-800' : ''}`}
+            >
+              {/* サムネイル */}
+              <div className="h-12 w-9 shrink-0 overflow-hidden rounded bg-zinc-100 dark:bg-zinc-800">
+                {book.cover_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={book.cover_url} alt={book.title} className="h-full w-full object-cover" />
+                ) : (
+                  <div className="flex h-full items-center justify-center text-lg">📖</div>
+                )}
+              </div>
+              {/* タイトル・著者 */}
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-zinc-900 dark:text-white">{book.title}</p>
+                <p className="truncate text-xs text-zinc-500 dark:text-zinc-400">{book.authors.join(', ')}</p>
+              </div>
+              {/* ステータス */}
+              <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${
+                normalizeReadingStatus(book.reading_status) === 'reading' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' :
+                normalizeReadingStatus(book.reading_status) === 'done' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' :
+                normalizeReadingStatus(book.reading_status) === 'wishlist' ? 'bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-300' :
+                'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300'
+              }`}>
+                {READING_STATUS_LABELS[normalizeReadingStatus(book.reading_status)]}
+              </span>
+            </Link>
+          ))}
+        </div>
       ) : (
+        /* カード表示 */
         <div className="grid gap-4">
           {filteredBooks.map((book) => (
             <BookCard

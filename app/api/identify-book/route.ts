@@ -15,7 +15,14 @@ interface GoogleBooksVolume {
     categories?: string[];
     language?: string;
     industryIdentifiers?: { type: string; identifier: string }[];
-    imageLinks?: { thumbnail?: string; smallThumbnail?: string };
+    imageLinks?: {
+      smallThumbnail?: string;
+      thumbnail?: string;
+      small?: string;
+      medium?: string;
+      large?: string;
+      extraLarge?: string;
+    };
   };
 }
 
@@ -110,7 +117,14 @@ async function fetchGoogleBooks(query: string): Promise<Omit<Book, 'scan_method'
   const info = item.volumeInfo;
   const isbn13 = info.industryIdentifiers?.find(id => id.type === 'ISBN_13')?.identifier;
   const isbn10 = info.industryIdentifiers?.find(id => id.type === 'ISBN_10')?.identifier;
-  const coverUrl = info.imageLinks?.thumbnail?.replace('http:', 'https:') ?? null;
+  // zoom=1(サムネイル)より zoom=0 の方が高解像度
+  const rawCover = info.imageLinks?.extraLarge
+    ?? info.imageLinks?.large
+    ?? info.imageLinks?.medium
+    ?? info.imageLinks?.thumbnail;
+  const coverUrl = rawCover
+    ? rawCover.replace('http:', 'https:').replace('zoom=1', 'zoom=0').replace('&edge=curl', '')
+    : null;
 
   return {
     isbn: isbn13 ?? isbn10 ?? null,

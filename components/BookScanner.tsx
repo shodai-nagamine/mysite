@@ -201,8 +201,9 @@ export default function BookScanner() {
     const data = await res.json();
     let book: Book = data.book;
 
-    // 表紙画像がない場合はスキャン画像をアップロード
-    if (!book.cover_url && originalFile) {
+    // AI スキャンで表紙画像がない場合のみ撮影画像をアップロード
+    // バーコードスキャンの場合は手元の写真（バーコードアップ）を表紙に使わない
+    if (!book.cover_url && originalFile && book.scan_method === 'ai') {
       setStatusMsg('表紙画像をアップロード中...');
       const uploadedUrl = await uploadCoverImage(originalFile);
       if (uploadedUrl) book = { ...book, cover_url: uploadedUrl };

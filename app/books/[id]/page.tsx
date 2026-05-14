@@ -49,6 +49,7 @@ export default function BookDetailPage() {
   const [searchingIsbn, setSearchingIsbn] = useState(false);
   const [isbnSearchMsg, setIsbnSearchMsg] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
   const [highlightRefreshKey, setHighlightRefreshKey] = useState(0);
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -169,6 +170,57 @@ export default function BookDetailPage() {
       setIsbnSearchMsg({ type: 'error', text: err instanceof Error ? err.message : '書籍が見つかりませんでした' });
     }
     setSearchingIsbn(false);
+  }
+
+  async function exportMarkdown() {
+    if (!book) return;
+    setExporting(true);
+
+    const { data: hlData } = await supabase
+      .from('highlights')
+      .select('text,page,note,created_at')
+      .eq('book_id', book.id)
+      .order('page', { ascending: true, nullsFirst: false })
+      .order('created_at', { ascending: true });
+
+    const highlights = (hlData ?? []) as { text: string; page: number | null; note: string | null }[];
+    const { READING_STATUS_LABELS } = await import('@/components/StatusBadge');
+    const { normalizeReadingStatus } = await import('@/components/StatusBadge');
+
+    const lines: string[] = [
+      `# ${book.title}`,
+      '',
+      `- **著者**: ${book.authors.join(', ') || '不明'}`,
+      book.publisher ? `- **出版社**: ${book.publisher}` : '',
+      book.published_date ? `- **発行年**: ${book.published_date}` : '',
+      book.isbn ? `- **ISBN**: ${book.isbn}` : '',
+      `- **ステータス**: ${READING_STATUS_LABELS[normalizeReadingStatus(book.reading_status)]}`,
+      book.page_count ? `- **ページ数**: ${book.page_count}` : '',
+      '',
+    ].filter((l) => l !== null);
+
+    if (book.description) {
+      lines.push('## 概要', '', book.description, '');
+    }
+
+    if (highlights.length > 0) {
+      lines.push('## ハイライト', '');
+      for (const h of highlights) {
+        if (h.page) lines.push(`### p. ${h.page}`, '');
+        lines.push(...h.text.split('\n').map((l) => `> ${l}`), '');
+        if (h.note) lines.push(`💬 ${h.note}`, '');
+      }
+    }
+
+    const md = lines.join('\n');
+    const blob = new Blob([md], { type: 'text/markdown; charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${book.title.replace(/[\\/:*?"<>|]/g, '_')}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setExporting(false);
   }
 
   async function refreshFromIsbn() {
@@ -296,14 +348,24 @@ export default function BookDetailPage() {
             </>
           }
           actionControls={
-            <button
-              type="button"
-              onClick={refreshFromIsbn}
-              disabled={saving || refreshing || deleting || !normalizeIsbn(book.isbn)}
-              className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-medium text-sky-800 transition hover:bg-sky-100 disabled:opacity-50 dark:border-sky-900/60 dark:bg-sky-900/20 dark:text-sky-200"
-            >
-              {refreshing ? '取得中...' : 'ISBNから書誌情報を取得'}
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={refreshFromIsbn}
+                disabled={saving || refreshing || deleting || !normalizeIsbn(book.isbn)}
+                className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-medium text-sky-800 transition hover:bg-sky-100 disabled:opacity-50 dark:border-sky-900/60 dark:bg-sky-900/20 dark:text-sky-200"
+              >
+                {refreshing ? '取得中...' : 'ISBNから書誌情報を取得'}
+              </button>
+              <button
+                type="button"
+                onClick={exportMarkdown}
+                disabled={exporting}
+                className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800 transition hover:bg-emerald-100 disabled:opacity-50 dark:border-emerald-900/60 dark:bg-emerald-900/20 dark:text-emerald-200"
+              >
+                {exporting ? '生成中...' : '📄 Markdownで出力'}
+              </button>
+            </div>
           }
           editForm={
             editing && editForm ? (
