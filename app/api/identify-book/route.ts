@@ -105,6 +105,39 @@ function parsePageCount(value?: string | null) {
   return firstNumber ? Number(firstNumber) : null;
 }
 
+const CATEGORY_MAP: Record<string, string> = {
+  // 心理・福祉
+  psychology: '心理学', 'social science': '社会科学', 'self-help': '自己啓発',
+  psychiatry: '精神医学', counseling: 'カウンセリング', therapy: 'セラピー',
+  'social work': '社会福祉', welfare: '福祉', education: '教育',
+  // 技術・IT
+  computers: 'コンピュータ', programming: 'プログラミング', technology: 'テクノロジー',
+  mathematics: '数学', science: '科学', engineering: '工学', 'artificial intelligence': 'AI',
+  // ビジネス
+  business: 'ビジネス', economics: '経済', management: '経営', finance: '金融',
+  marketing: 'マーケティング',
+  // 文化・教養
+  philosophy: '哲学', history: '歴史', literature: '文学', art: 'アート',
+  music: '音楽', religion: '宗教', language: '言語', fiction: '小説',
+  biography: '伝記', travel: '旅行', cooking: '料理', health: '健康',
+  'medical': '医療', law: '法律', politics: '政治', nature: '自然',
+};
+
+function categoriesToTags(categories: string[]): string[] {
+  const tags = new Set<string>();
+  for (const cat of categories) {
+    const lower = cat.toLowerCase();
+    for (const [key, label] of Object.entries(CATEGORY_MAP)) {
+      if (lower.includes(key)) tags.add(label);
+    }
+    // 日本語カテゴリはそのまま追加
+    if (/[ぁ-んァ-ン一-龯]/.test(cat)) {
+      tags.add(cat.trim());
+    }
+  }
+  return Array.from(tags);
+}
+
 async function fetchGoogleBooks(query: string): Promise<Omit<Book, 'scan_method'> | null> {
   const url = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=1&langRestrict=`;
   const res = await fetch(url);
@@ -136,6 +169,7 @@ async function fetchGoogleBooks(query: string): Promise<Omit<Book, 'scan_method'
     cover_url: coverUrl,
     page_count: info.pageCount ?? null,
     categories: info.categories ?? [],
+    tags: categoriesToTags(info.categories ?? []),
     language: info.language ?? null,
     raw_metadata: item as unknown as Record<string, unknown>,
   };
@@ -163,6 +197,7 @@ async function fetchOpenBd(isbn: string): Promise<Omit<Book, 'scan_method'> | nu
     cover_url: summary.cover ?? null,
     page_count: null,
     categories: [summary.series, summary.volume].filter((value): value is string => Boolean(value)),
+    tags: [],
     language: 'ja',
     raw_metadata: { source: 'openbd', data: item as unknown },
   };
@@ -201,6 +236,7 @@ async function fetchNdlSearch(isbn: string): Promise<Omit<Book, 'scan_method'> |
     cover_url: null,
     page_count: parsePageCount(extent),
     categories,
+    tags: [],
     language: 'ja',
     raw_metadata: { source: 'ndlsearch', xml },
   };
@@ -251,6 +287,7 @@ async function fetchNdlByTitle(title: string, author?: string): Promise<Omit<Boo
     cover_url: null,
     page_count: parsePageCount(extent),
     categories,
+    tags: [],
     language: 'ja',
     raw_metadata: { source: 'ndlsearch-title', xml },
   };
@@ -372,6 +409,7 @@ export async function POST(req: NextRequest) {
           cover_url: null,
           page_count: null,
           categories: [],
+          tags: [],
           language: null,
           raw_metadata: {},
         };

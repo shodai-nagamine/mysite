@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import BookCard from '@/components/BookCard';
+import TagInput from '@/components/TagInput';
 import { Book, ReadingStatus, supabase } from '@/lib/supabase';
 import { normalizeReadingStatus, READING_STATUS_LABELS } from '@/components/StatusBadge';
 
@@ -33,6 +34,7 @@ type EditForm = {
   authors: string;
   publisher: string;
   published_date: string;
+  tags: string[];
 };
 
 const BOOK_SELECT =
@@ -49,6 +51,7 @@ function toEditForm(book: Book): EditForm {
     authors: book.authors.join(', '),
     publisher: book.publisher ?? '',
     published_date: book.published_date ?? '',
+    tags: book.tags ?? [],
   };
 }
 
@@ -82,6 +85,7 @@ export default function BookList() {
   const [isbnSearchMsg, setIsbnSearchMsg] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>('created_at_desc');
   const [highlightSummaries, setHighlightSummaries] = useState<Map<string, HighlightSummary>>(new Map());
+  const [tagFilter, setTagFilter] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -136,14 +140,23 @@ export default function BookList() {
       });
   }, [books]);
 
+  const allTags = useMemo(() => {
+    const set = new Set<string>();
+    for (const book of books) {
+      for (const tag of book.tags ?? []) set.add(tag);
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'ja'));
+  }, [books]);
+
   const filteredBooks = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
 
     const filtered = books.filter((book) => {
       const status = normalizeReadingStatus(book.reading_status);
       if (statusFilter !== 'all' && status !== statusFilter) return false;
+      if (tagFilter && !(book.tags ?? []).includes(tagFilter)) return false;
       if (!normalizedQuery) return true;
-      const haystack = [book.title, ...book.authors].join(' ').toLowerCase();
+      const haystack = [book.title, ...book.authors, ...(book.tags ?? [])].join(' ').toLowerCase();
       return haystack.includes(normalizedQuery);
     });
 
@@ -270,6 +283,7 @@ export default function BookList() {
       authors,
       publisher: editForm.publisher.trim() || null,
       published_date: editForm.published_date.trim() || null,
+      tags: editForm.tags,
     };
 
     const { data, error: dbError } = await supabase
@@ -433,9 +447,27 @@ export default function BookList() {
           type="search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="タイトル・著者で検索"
+          placeholder="タイトル・著者・タグで検索"
           className="w-full rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 outline-none transition placeholder:text-zinc-400 focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:focus:border-zinc-500"
         />
+        {allTags.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {allTags.map((tag) => (
+              <button
+                key={tag}
+                type="button"
+                onClick={() => setTagFilter(tagFilter === tag ? null : tag)}
+                className={`rounded-full px-2.5 py-1 text-xs font-medium transition ${
+                  tagFilter === tag
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-900/50'
+                }`}
+              >
+                #{tag}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {error && (
@@ -472,10 +504,19 @@ export default function BookList() {
                       <div className="flex h-full items-center justify-center text-lg">📖</div>
                     )}
                   </div>
-                  {/* タイトル・著者 */}
+                  {/* タイトル・著者・タグ */}
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-zinc-900 dark:text-white">{book.title}</p>
                     <p className="truncate text-xs text-zinc-500 dark:text-zinc-400">{book.authors.join(', ')}</p>
+                    {(book.tags ?? []).length > 0 && (
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {(book.tags ?? []).map((tag) => (
+                          <span key={tag} className="rounded-full bg-blue-50 px-1.5 py-0.5 text-xs text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
+                            #{tag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </Link>
                 {/* ステータス（プルダウン） */}
@@ -584,6 +625,13 @@ export default function BookList() {
                         className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
                       />
                     </label>
+                    <div className="grid gap-1 text-xs font-medium text-zinc-600 dark:text-zinc-300">
+                      タグ
+                      <TagInput
+                        tags={editForm.tags}
+                        onChange={(tags) => setEditForm((f) => f ? { ...f, tags } : f)}
+                      />
+                    </div>
                     <div className="flex flex-wrap gap-2">
                       <button
                         type="button"
@@ -716,6 +764,13 @@ export default function BookList() {
                         className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
                       />
                     </label>
+                    <div className="grid gap-1 text-xs font-medium text-zinc-600 dark:text-zinc-300">
+                      タグ
+                      <TagInput
+                        tags={editForm.tags}
+                        onChange={(tags) => setEditForm((f) => f ? { ...f, tags } : f)}
+                      />
+                    </div>
                     <div className="flex flex-wrap gap-2">
                       <button
                         type="button"
@@ -771,23 +826,44 @@ export default function BookList() {
                   </label>
                 ) : null
               }
-              footer={
-                book.id && highlightSummaries.has(book.id) ? (() => {
-                  const hl = highlightSummaries.get(book.id!)!;
-                  return (
-                    <div className="flex flex-col gap-1 rounded-lg bg-yellow-50 px-3 py-2 dark:bg-yellow-900/10">
-                      <p className="text-xs font-medium text-yellow-700 dark:text-yellow-400">
-                        📌 {hl.count}件のハイライト
-                      </p>
-                      {hl.latestText && (
-                        <p className="line-clamp-2 text-xs text-zinc-600 dark:text-zinc-400">
-                          {hl.latestText}
+              footer={(() => {
+                const hl = book.id ? highlightSummaries.get(book.id) : null;
+                const tags = book.tags ?? [];
+                return (
+                  <div className="flex flex-col gap-2">
+                    {tags.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        {tags.map((tag) => (
+                          <button
+                            key={tag}
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setTagFilter(tagFilter === tag ? null : tag); }}
+                            className={`rounded-full px-2 py-0.5 text-xs font-medium transition ${
+                              tagFilter === tag
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-300'
+                            }`}
+                          >
+                            #{tag}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {hl && (
+                      <div className="flex flex-col gap-1 rounded-lg bg-yellow-50 px-3 py-2 dark:bg-yellow-900/10">
+                        <p className="text-xs font-medium text-yellow-700 dark:text-yellow-400">
+                          📌 {hl.count}件のハイライト
                         </p>
-                      )}
-                    </div>
-                  );
-                })() : null
-              }
+                        {hl.latestText && (
+                          <p className="line-clamp-2 text-xs text-zinc-600 dark:text-zinc-400">
+                            {hl.latestText}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             />
             </div>
           ))}

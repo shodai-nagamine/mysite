@@ -27,6 +27,7 @@ export function buildObsidianMarkdown(
     `status: ${statusLabel}`,
     book.page_count  ? `page_count: ${book.page_count}`           : null,
     book.cover_url   ? `cover: "${book.cover_url}"`               : null,
+    (book.tags?.length) ? `tags:\n${book.tags.map((t) => `  - ${t}`).join('\n')}` : null,
     `highlight_count: ${highlights.length}`,
     `source: bookshelf`,
     `synced: "${new Date().toISOString()}"`,

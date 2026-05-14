@@ -15,6 +15,7 @@ export interface Book {
   cover_url?: string | null;
   page_count?: number | null;
   categories: string[];
+  tags: string[];
   language?: string | null;
   raw_metadata: Record<string, unknown>;
   scan_method: 'barcode' | 'ai';
