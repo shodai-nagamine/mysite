@@ -33,7 +33,7 @@ export default function AppHeader() {
     <header className="sticky top-0 z-10 border-b border-zinc-200 bg-white/80 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/80">
       <div className="mx-auto flex max-w-2xl items-center justify-between px-4 py-3">
         <Link href="/" className="text-sm font-semibold text-zinc-900 dark:text-white">
-          📚 本棚アプリ
+          ZenRead
         </Link>
         <div className="flex items-center gap-3">
           <span className="hidden text-xs text-zinc-500 sm:block dark:text-zinc-400">

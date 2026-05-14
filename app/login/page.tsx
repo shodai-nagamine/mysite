@@ -22,7 +22,7 @@ export default function LoginPage() {
             <BookOpen className="h-7 w-7 text-white dark:text-zinc-900" />
           </div>
           <h1 className="text-xl font-bold text-zinc-900 dark:text-white">
-            本棚アプリ
+            ZenRead
           </h1>
           <p className="text-center text-sm text-zinc-500 dark:text-zinc-400">
             ログインして自分の本棚を管理しましょう
