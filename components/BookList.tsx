@@ -589,15 +589,6 @@ export default function BookList() {
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-zinc-900 dark:text-white">{book.title}</p>
                     <p className="truncate text-xs text-zinc-500 dark:text-zinc-400">{book.authors.join(', ')}</p>
-                    {(book.tags ?? []).length > 0 && (
-                      <div className="mt-1 flex flex-wrap gap-1">
-                        {(book.tags ?? []).map((tag) => (
-                          <span key={tag} className="rounded-full bg-blue-50 px-1.5 py-0.5 text-xs text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
-                            #{tag}
-                          </span>
-                        ))}
-                      </div>
-                    )}
                   </div>
                 </Link>
                 {/* ステータス（プルダウン） */}
