@@ -32,7 +32,7 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // 未ログインで保護ページにアクセス → ログインページへ
-  if (!user && pathname !== '/login' && pathname !== '/landing' && !pathname.startsWith('/auth/') && !pathname.startsWith('/api/sync')) {
+  if (!user && pathname !== '/login' && !pathname.startsWith('/landing') && !pathname.startsWith('/auth/') && !pathname.startsWith('/api/sync')) {
     const url = request.nextUrl.clone();
     url.pathname = '/login';
     return NextResponse.redirect(url);
@@ -50,6 +50,6 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|landing|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 };
