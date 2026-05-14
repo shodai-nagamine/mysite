@@ -5,7 +5,10 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { BrowserMultiFormatReader } from '@zxing/browser';
 import { NotFoundException } from '@zxing/library';
-import { supabase, Book } from '@/lib/supabase';
+import { createClient } from '@/lib/supabase/client';
+import { Book } from '@/lib/supabase';
+
+const supabase = createClient();
 import BookCard from './BookCard';
 
 function isHeic(file: File) {
@@ -55,11 +58,11 @@ function isUniqueConstraintError(error: unknown) {
   );
 }
 
-async function findDuplicateBook(book: Book): Promise<Book | null> {
+async function findDuplicateBook(book: Book, supabaseClient: ReturnType<typeof createClient>): Promise<Book | null> {
   const normalizedIsbn = normalizeIsbn(book.isbn);
 
   if (normalizedIsbn) {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseClient
       .from('books')
       .select(BOOK_SELECT)
       .not('isbn', 'is', null);
@@ -73,7 +76,7 @@ async function findDuplicateBook(book: Book): Promise<Book | null> {
   const title = book.title.trim();
   if (!title) return null;
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseClient
     .from('books')
     .select(BOOK_SELECT)
     .eq('title', title);
@@ -180,6 +183,9 @@ export default function BookScanner() {
   }, []);
 
   const identifyAndSave = useCallback(async (body: Record<string, string>, originalFile?: File) => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('ログインが必要です');
+
     setStatus('fetching');
     const res = await fetch('/api/identify-book', {
       method: 'POST',
@@ -205,7 +211,7 @@ export default function BookScanner() {
     setStatus('saving');
     setStatusMsg('重複を確認中...');
 
-    const duplicate = await findDuplicateBook(book);
+    const duplicate = await findDuplicateBook(book, supabase);
     if (duplicate) {
       const msg = `「${duplicate.title}」は既に本棚に登録されています。重複登録はしません。`;
       setDuplicateMsg(msg);
@@ -221,6 +227,7 @@ export default function BookScanner() {
     const { data: inserted, error: dbErr } = await supabase
       .from('books')
       .insert({
+        user_id: user.id,
         isbn: book.isbn,
         title: book.title,
         authors: book.authors,

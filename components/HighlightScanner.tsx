@@ -1,7 +1,9 @@
 'use client';
 
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
+import { createClient } from '@/lib/supabase/client';
+
+const supabase = createClient();
 
 interface Props {
   bookId: string;
@@ -108,8 +110,11 @@ export default function HighlightScanner({ bookId, onSaved }: Props) {
   async function handleSave() {
     if (selected.size === 0) return;
     setPhase('saving');
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setErrorMsg('ログインが必要です'); setPhase('error'); return; }
     const text = blocks.filter((_, i) => selected.has(i)).join('\n');
     const { error } = await supabase.from('highlights').insert({
+      user_id: user.id,
       book_id: bookId,
       text,
       page: page ? parseInt(page, 10) : null,
