@@ -9,6 +9,13 @@ import { Book, ReadingStatus, supabase } from '@/lib/supabase';
 import { normalizeReadingStatus, READING_STATUS_LABELS } from '@/components/StatusBadge';
 
 type ViewMode = 'card' | 'list';
+
+const STATUS_BORDER: Record<string, string> = {
+  wishlist: 'border-l-pink-400 dark:border-l-pink-500',
+  want:     'border-l-amber-400 dark:border-l-amber-500',
+  reading:  'border-l-sky-400 dark:border-l-sky-500',
+  done:     'border-l-emerald-400 dark:border-l-emerald-500',
+};
 type SortKey = 'created_at_desc' | 'created_at_asc' | 'title_asc' | 'title_desc' | 'highlight_desc' | 'tag_asc';
 type HighlightSummary = { count: number; latestText: string | null };
 
@@ -570,7 +577,7 @@ export default function BookList() {
         <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-900">
           {filteredBooks.map((book, i) => (
             <div key={book.id ?? `${book.title}-${book.created_at}`}>
-              <div className={`flex items-center gap-2 px-3 py-2.5 ${i > 0 ? 'border-t border-zinc-100 dark:border-zinc-800' : ''}`}>
+              <div className={`flex items-center gap-2 border-l-4 px-3 py-2.5 ${STATUS_BORDER[normalizeReadingStatus(book.reading_status)] ?? STATUS_BORDER.want} ${i > 0 ? 'border-t border-zinc-100 dark:border-zinc-800' : ''}`}>
                 {/* クリッカブルエリア（サムネイル・タイトル・著者） */}
                 <Link
                   href={book.id ? `/books/${book.id}` : '#'}
