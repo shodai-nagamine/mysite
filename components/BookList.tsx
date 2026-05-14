@@ -394,35 +394,145 @@ export default function BookList() {
         /* リスト表示 */
         <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-900">
           {filteredBooks.map((book, i) => (
-            <Link
-              key={book.id ?? `${book.title}-${book.created_at}`}
-              href={book.id ? `/books/${book.id}` : '#'}
-              className={`flex items-center gap-3 px-4 py-3 transition hover:bg-zinc-50 dark:hover:bg-zinc-800 ${i > 0 ? 'border-t border-zinc-100 dark:border-zinc-800' : ''}`}
-            >
-              {/* サムネイル */}
-              <div className="h-12 w-9 shrink-0 overflow-hidden rounded bg-zinc-100 dark:bg-zinc-800">
-                {book.cover_url ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={book.cover_url} alt={book.title} className="h-full w-full object-cover" />
-                ) : (
-                  <div className="flex h-full items-center justify-center text-lg">📖</div>
+            <div key={book.id ?? `${book.title}-${book.created_at}`}>
+              <div className={`flex items-center gap-2 px-3 py-2.5 ${i > 0 ? 'border-t border-zinc-100 dark:border-zinc-800' : ''}`}>
+                {/* クリッカブルエリア（サムネイル・タイトル・著者） */}
+                <Link
+                  href={book.id ? `/books/${book.id}` : '#'}
+                  className="flex min-w-0 flex-1 items-center gap-3 transition hover:opacity-80"
+                >
+                  {/* サムネイル */}
+                  <div className="h-12 w-9 shrink-0 overflow-hidden rounded bg-zinc-100 dark:bg-zinc-800">
+                    {book.cover_url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={book.cover_url} alt={book.title} className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="flex h-full items-center justify-center text-lg">📖</div>
+                    )}
+                  </div>
+                  {/* タイトル・著者 */}
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-zinc-900 dark:text-white">{book.title}</p>
+                    <p className="truncate text-xs text-zinc-500 dark:text-zinc-400">{book.authors.join(', ')}</p>
+                  </div>
+                </Link>
+                {/* ステータス */}
+                <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${
+                  normalizeReadingStatus(book.reading_status) === 'reading' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' :
+                  normalizeReadingStatus(book.reading_status) === 'done' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' :
+                  normalizeReadingStatus(book.reading_status) === 'wishlist' ? 'bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-300' :
+                  'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300'
+                }`}>
+                  {READING_STATUS_LABELS[normalizeReadingStatus(book.reading_status)]}
+                </span>
+                {/* 編集・削除ボタン */}
+                {book.id && (
+                  <div className="flex shrink-0 gap-1">
+                    <button
+                      type="button"
+                      onClick={() => startEdit(book)}
+                      disabled={busyAction !== null}
+                      title="編集"
+                      className="flex h-8 w-8 items-center justify-center rounded-lg text-sm text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-600 disabled:opacity-50 dark:hover:bg-zinc-800"
+                    >
+                      ✏️
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => deleteBook(book)}
+                      disabled={busyAction === `delete:${book.id}`}
+                      title="削除"
+                      className="flex h-8 w-8 items-center justify-center rounded-lg text-sm text-zinc-400 transition hover:bg-red-50 hover:text-red-500 disabled:opacity-50 dark:hover:bg-red-900/20"
+                    >
+                      {busyAction === `delete:${book.id}` ? '…' : '🗑️'}
+                    </button>
+                  </div>
                 )}
               </div>
-              {/* タイトル・著者 */}
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-zinc-900 dark:text-white">{book.title}</p>
-                <p className="truncate text-xs text-zinc-500 dark:text-zinc-400">{book.authors.join(', ')}</p>
-              </div>
-              {/* ステータス */}
-              <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${
-                normalizeReadingStatus(book.reading_status) === 'reading' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' :
-                normalizeReadingStatus(book.reading_status) === 'done' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' :
-                normalizeReadingStatus(book.reading_status) === 'wishlist' ? 'bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-300' :
-                'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300'
-              }`}>
-                {READING_STATUS_LABELS[normalizeReadingStatus(book.reading_status)]}
-              </span>
-            </Link>
+              {/* インライン編集フォーム */}
+              {book.id && editingId === book.id && editForm && (
+                <div className="border-t border-zinc-100 px-4 pb-4 pt-3 dark:border-zinc-800">
+                  <div className="grid gap-3 rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-950">
+                    <label className="grid gap-1 text-xs font-medium text-zinc-600 dark:text-zinc-300">
+                      タイトル
+                      <input
+                        value={editForm.title}
+                        onChange={(event) => updateEditField('title', event.target.value)}
+                        className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+                      />
+                    </label>
+                    <label className="grid gap-1 text-xs font-medium text-zinc-600 dark:text-zinc-300">
+                      著者
+                      <input
+                        value={editForm.authors}
+                        onChange={(event) => updateEditField('authors', event.target.value)}
+                        placeholder="複数の場合はカンマ区切り"
+                        className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+                      />
+                    </label>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <label className="grid gap-1 text-xs font-medium text-zinc-600 dark:text-zinc-300">
+                        ISBN
+                        <input
+                          value={editForm.isbn}
+                          onChange={(event) => updateEditField('isbn', event.target.value)}
+                          className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+                        />
+                      </label>
+                      <label className="grid gap-1 text-xs font-medium text-zinc-600 dark:text-zinc-300">
+                        発行年
+                        <input
+                          value={editForm.published_date}
+                          onChange={(event) => updateEditField('published_date', event.target.value)}
+                          className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+                        />
+                      </label>
+                    </div>
+                    <label className="grid gap-1 text-xs font-medium text-zinc-600 dark:text-zinc-300">
+                      出版社
+                      <input
+                        value={editForm.publisher}
+                        onChange={(event) => updateEditField('publisher', event.target.value)}
+                        className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+                      />
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => { setIsbnSearchMsg(null); searchIsbnFromTitle(book.id!); }}
+                        disabled={busyAction !== null || searchingIsbnFor !== null}
+                        className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-medium text-violet-800 transition hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-violet-900/60 dark:bg-violet-900/20 dark:text-violet-200"
+                      >
+                        {searchingIsbnFor === book.id ? '検索中...' : '🔍 タイトルからISBNを検索'}
+                      </button>
+                    </div>
+                    {isbnSearchMsg && editingId === book.id && (
+                      <p className={`text-xs ${isbnSearchMsg.type === 'error' ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                        {isbnSearchMsg.type === 'error' ? '⚠️ ' : ''}{isbnSearchMsg.text}
+                      </p>
+                    )}
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => saveEdit(book)}
+                        disabled={busyAction !== null || searchingIsbnFor !== null}
+                        className="rounded-lg bg-zinc-900 px-3 py-2 text-xs font-medium text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
+                      >
+                        {busyAction === `edit:${book.id}` ? '保存中...' : '保存'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={cancelEdit}
+                        disabled={busyAction !== null}
+                        className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
+                      >
+                        キャンセル
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
           ))}
         </div>
       ) : (

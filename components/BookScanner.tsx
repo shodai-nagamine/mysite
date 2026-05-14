@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { BrowserMultiFormatReader } from '@zxing/browser';
@@ -100,8 +100,20 @@ export default function BookScanner() {
   const [duplicateMsg, setDuplicateMsg] = useState('');
   const [result, setResult] = useState<Book | null>(null);
   const [history, setHistory] = useState<Book[]>([]);
+  const [cameraOpen, setCameraOpen] = useState(false);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const scanCanvasRef = useRef<HTMLCanvasElement>(null);
+
+  const stopCamera = useCallback(() => {
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+  }, []);
+
+  useEffect(() => () => stopCamera(), [stopCamera]);
 
   const tryBarcodeDetect = useCallback(async (file: File): Promise<string | null> => {
     const objectUrl = URL.createObjectURL(file);
@@ -113,7 +125,6 @@ export default function BookScanner() {
 
       const candidates: string[] = [];
 
-      // ① BarcodeDetector API（Chrome/Edge/Safari 17+）: 複数バーコードを一度に取得できる
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const BarcodeDetectorAPI = (window as any).BarcodeDetector;
       if (BarcodeDetectorAPI) {
@@ -126,7 +137,6 @@ export default function BookScanner() {
         }
       }
 
-      // ② @zxing フォールバック（BarcodeDetector がない or 検出 0 件のとき）
       if (candidates.length === 0) {
         try {
           const reader = new BrowserMultiFormatReader();
@@ -137,7 +147,6 @@ export default function BookScanner() {
         }
       }
 
-      // ISBN フォーマットを優先、なければ最初の候補を返す
       const isbnCode = candidates.find(isIsbnCode);
       return isbnCode ?? (candidates.length > 0 ? candidates[0] : null);
     } finally {
@@ -202,7 +211,7 @@ export default function BookScanner() {
     let book: Book = data.book;
 
     // AI スキャンで表紙画像がない場合のみ撮影画像をアップロード
-    // バーコードスキャンの場合は手元の写真（バーコードアップ）を表紙に使わない
+    // バーコード・ISBN検索の場合は撮影写真を表紙に使わない
     if (!book.cover_url && originalFile && book.scan_method === 'ai') {
       setStatusMsg('表紙画像をアップロード中...');
       const uploadedUrl = await uploadCoverImage(originalFile);
@@ -264,7 +273,7 @@ export default function BookScanner() {
     setHistory((prev) => [savedBook, ...prev]);
     setStatus('done');
     setStatusMsg('');
-  }, []);
+  }, [uploadCoverImage]);
 
   const handleFile = useCallback(async (file: File) => {
     if (!file.type.startsWith('image/')) return;
@@ -281,12 +290,10 @@ export default function BookScanner() {
       let body: Record<string, string>;
 
       if (detected && isIsbnCode(detected)) {
-        // ISBN バーコードを検出
         const normalizedIsbn = normalizeIsbn(detected);
         setStatusMsg(`ISBNバーコード検出: ${normalizedIsbn}`);
         body = { isbn: normalizedIsbn };
       } else {
-        // ISBN でないバーコード or バーコードなし → AI で識別
         if (detected) setStatusMsg(`バーコード検出（ISBN以外）→ AI で識別中...`);
         else setStatusMsg('AI で書籍を識別中...');
         const { base64, mimeType } = await toBase64(file, setStatusMsg);
@@ -300,6 +307,42 @@ export default function BookScanner() {
       setStatusMsg(err instanceof Error ? err.message : String(err));
     }
   }, [identifyAndSave, tryBarcodeDetect]);
+
+  const startCamera = useCallback(async () => {
+    setCameraOpen(true);
+    setStatus('idle');
+    setStatusMsg('');
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+    } catch {
+      setCameraOpen(false);
+      setStatus('error');
+      setStatusMsg('カメラを起動できませんでした。カメラへのアクセスを許可してください。');
+    }
+  }, []);
+
+  const captureFromCamera = useCallback(() => {
+    const video = videoRef.current;
+    const canvas = scanCanvasRef.current;
+    if (!video || !canvas) return;
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext('2d')!.drawImage(video, 0, 0);
+    stopCamera();
+    setCameraOpen(false);
+    canvas.toBlob((blob) => {
+      if (!blob) return;
+      const file = new File([blob], 'capture.jpg', { type: 'image/jpeg' });
+      handleFile(file);
+    }, 'image/jpeg', 0.9);
+  }, [stopCamera, handleFile]);
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
@@ -317,6 +360,8 @@ export default function BookScanner() {
   };
 
   const reset = () => {
+    stopCamera();
+    setCameraOpen(false);
     setPreview(null);
     setResult(null);
     setStatus('idle');
@@ -328,60 +373,104 @@ export default function BookScanner() {
 
   return (
     <div className="flex w-full max-w-lg flex-col gap-6">
-      <div
-        onDrop={handleDrop}
-        onDragOver={(e) => e.preventDefault()}
-        className="relative flex min-h-52 cursor-pointer flex-col items-center justify-center gap-4 rounded-2xl border-2 border-dashed border-zinc-300 bg-zinc-50 p-8 transition hover:border-zinc-400 hover:bg-zinc-100 dark:border-zinc-600 dark:bg-zinc-900 dark:hover:border-zinc-500 dark:hover:bg-zinc-800"
-        onClick={() => !isLoading && fileInputRef.current?.click()}
-      >
-        {preview ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={preview}
-            alt="プレビュー"
-            className="max-h-48 max-w-full rounded-lg object-contain shadow"
-          />
-        ) : (
-          <>
-            <span className="text-5xl">📷</span>
-            <div className="text-center">
-              <p className="font-medium text-zinc-700 dark:text-zinc-300">
-                本の表紙をアップロード
-              </p>
-              <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-                クリック・ドラッグ＆ドロップ・カメラ撮影
-              </p>
-            </div>
-          </>
-        )}
-
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          className="hidden"
-          onChange={handleInputChange}
-        />
-      </div>
-
-      <div className="flex gap-3">
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          disabled={isLoading}
-          className="flex-1 rounded-xl bg-zinc-900 px-4 py-3 text-sm font-medium text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
-        >
-          {isLoading ? '処理中...' : preview ? '別の画像を選択' : '画像を選択'}
-        </button>
-        {preview && !isLoading && (
-          <button
-            onClick={reset}
-            className="rounded-xl border border-zinc-300 px-4 py-3 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800"
+      {/* インラインカメラビュー */}
+      {cameraOpen ? (
+        <div className="flex flex-col gap-3">
+          <div className="relative overflow-hidden rounded-xl bg-black">
+            <video
+              ref={videoRef}
+              playsInline
+              muted
+              className="w-full rounded-xl"
+              style={{ maxHeight: '60vh', objectFit: 'cover' }}
+            />
+          </div>
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={captureFromCamera}
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-zinc-900 py-3 text-sm font-medium text-white transition hover:bg-zinc-700 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
+            >
+              <span className="text-xl">📸</span> 撮影する
+            </button>
+            <button
+              type="button"
+              onClick={() => { stopCamera(); setCameraOpen(false); }}
+              className="rounded-xl border border-zinc-300 px-4 py-3 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            >
+              キャンセル
+            </button>
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* ファイルアップロードエリア */}
+          <div
+            onDrop={handleDrop}
+            onDragOver={(e) => e.preventDefault()}
+            className="relative flex min-h-52 cursor-pointer flex-col items-center justify-center gap-4 rounded-2xl border-2 border-dashed border-zinc-300 bg-zinc-50 p-8 transition hover:border-zinc-400 hover:bg-zinc-100 dark:border-zinc-600 dark:bg-zinc-900 dark:hover:border-zinc-500 dark:hover:bg-zinc-800"
+            onClick={() => !isLoading && fileInputRef.current?.click()}
           >
-            リセット
-          </button>
-        )}
-      </div>
+            {preview ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={preview}
+                alt="プレビュー"
+                className="max-h-48 max-w-full rounded-lg object-contain shadow"
+              />
+            ) : (
+              <>
+                <span className="text-5xl">🖼️</span>
+                <div className="text-center">
+                  <p className="font-medium text-zinc-700 dark:text-zinc-300">
+                    画像をアップロード
+                  </p>
+                  <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+                    クリック・ドラッグ＆ドロップ
+                  </p>
+                </div>
+              </>
+            )}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleInputChange}
+            />
+          </div>
+
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={startCamera}
+              disabled={isLoading}
+              className="flex-1 rounded-xl bg-zinc-900 px-4 py-3 text-sm font-medium text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
+            >
+              📷 カメラで撮影
+            </button>
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isLoading}
+              className="rounded-xl border border-zinc-300 px-4 py-3 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            >
+              🖼️ ファイル
+            </button>
+            {preview && !isLoading && (
+              <button
+                onClick={reset}
+                className="rounded-xl border border-zinc-300 px-4 py-3 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              >
+                リセット
+              </button>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* 非表示 canvas（カメラキャプチャ用） */}
+      <canvas ref={scanCanvasRef} className="hidden" />
 
       {isLoading && (
         <div className="flex items-center gap-3 rounded-xl bg-blue-50 px-4 py-3 dark:bg-blue-900/20">

@@ -32,6 +32,7 @@ export default function HighlightScanner({ bookId, onSaved }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   // カメラ停止
   const stopCamera = useCallback(() => {
@@ -52,6 +53,9 @@ export default function HighlightScanner({ bookId, onSaved }: Props) {
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
       }
+      setTimeout(() => {
+        containerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 100);
     } catch {
       setErrorMsg('カメラを起動できませんでした。カメラへのアクセスを許可してください。');
       setPhase('error');
@@ -164,7 +168,7 @@ export default function HighlightScanner({ bookId, onSaved }: Props) {
   }
 
   return (
-    <div className="flex flex-col gap-4 rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900">
+    <div ref={containerRef} className="flex flex-col gap-4 rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900">
       {/* ヘッダー */}
       <div className="flex items-center justify-between">
         <h3 className="font-semibold text-zinc-900 dark:text-white">
