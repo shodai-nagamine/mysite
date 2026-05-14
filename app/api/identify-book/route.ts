@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Book } from '@/lib/supabase';
+import { checkRateLimit } from '@/lib/rateLimit';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
@@ -325,6 +326,26 @@ async function identifyByAI(imageBase64: string, mimeType: string): Promise<{ ti
 }
 
 export async function POST(req: NextRequest) {
+  // レート制限：IPごとに1分間20リクエストまで
+  const ip =
+    req.headers.get('x-forwarded-for')?.split(',')[0].trim() ??
+    req.headers.get('x-real-ip') ??
+    'unknown';
+  const rl = checkRateLimit(ip);
+  if (!rl.ok) {
+    const retryAfter = Math.ceil(rl.resetInMs / 1000);
+    return NextResponse.json(
+      { error: 'リクエストが多すぎます。しばらく待ってから再試行してください。' },
+      {
+        status: 429,
+        headers: {
+          'Retry-After': String(retryAfter),
+          'X-RateLimit-Remaining': '0',
+        },
+      },
+    );
+  }
+
   try {
     const body = await req.json();
     const { isbn, title, authors, imageBase64, mimeType } = body as {
