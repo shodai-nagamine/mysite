@@ -10,6 +10,7 @@ import { normalizeReadingStatus, READING_STATUS_LABELS } from '@/components/Stat
 import HighlightScanner from '@/components/HighlightScanner';
 import HighlightList from '@/components/HighlightList';
 import TagInput from '@/components/TagInput';
+import { useAllTags } from '@/lib/useAllTags';
 
 const BOOK_SELECT =
   'id,isbn,title,authors,publisher,published_date,description,cover_url,page_count,categories,language,raw_metadata,scan_method,reading_status,created_at,tags';
@@ -43,6 +44,7 @@ export default function BookDetailPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const autoOpenHighlight = searchParams.get('highlight') === '1';
+  const allTags = useAllTags();
   const [book, setBook] = useState<Book | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -400,6 +402,7 @@ export default function BookDetailPage() {
                   <TagInput
                     tags={editForm.tags}
                     onChange={(tags) => setEditForm((prev) => prev ? { ...prev, tags } : prev)}
+                    suggestions={allTags}
                   />
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -450,6 +453,7 @@ export default function BookDetailPage() {
               const { data } = await supabase.from('books').update({ tags }).eq('id', book.id!).select('*').single();
               if (data) setBook(data as Book);
             }}
+            suggestions={allTags}
           />
         </section>
 

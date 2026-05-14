@@ -9,6 +9,7 @@ import { createClient } from '@/lib/supabase/client';
 import { Book, ReadingStatus } from '@/lib/supabase';
 import TagInput from './TagInput';
 import { READING_STATUS_LABELS } from './StatusBadge';
+import { useAllTags } from '@/lib/useAllTags';
 
 const supabase = createClient();
 
@@ -108,6 +109,7 @@ function bookToPendingForm(book: Book): PendingForm {
 
 export default function BookScanner() {
   const router = useRouter();
+  const allTags = useAllTags();
   const [preview, setPreview] = useState<string | null>(null);
   const [status, setStatus] = useState<ScanStatus>('idle');
   const [statusMsg, setStatusMsg] = useState('');
@@ -579,6 +581,7 @@ export default function BookScanner() {
               <TagInput
                 tags={pending.tags}
                 onChange={(tags) => setPending((p) => p ? { ...p, tags } : p)}
+                suggestions={allTags}
               />
             </div>
 

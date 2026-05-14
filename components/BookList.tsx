@@ -633,6 +633,7 @@ export default function BookList() {
                       <TagInput
                         tags={editForm.tags}
                         onChange={(tags) => setEditForm((f) => f ? { ...f, tags } : f)}
+                        suggestions={allTags}
                       />
                     </div>
                     <div className="flex flex-wrap gap-2">
@@ -772,6 +773,7 @@ export default function BookList() {
                       <TagInput
                         tags={editForm.tags}
                         onChange={(tags) => setEditForm((f) => f ? { ...f, tags } : f)}
+                        suggestions={allTags}
                       />
                     </div>
                     <div className="flex flex-wrap gap-2">
