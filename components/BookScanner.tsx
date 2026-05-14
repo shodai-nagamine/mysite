@@ -251,7 +251,7 @@ export default function BookScanner() {
         language: book.language,
         raw_metadata: book.raw_metadata,
         scan_method: book.scan_method,
-        reading_status: 'want',
+        reading_status: 'wishlist',
       })
       .select(BOOK_SELECT)
       .single();
@@ -269,7 +269,7 @@ export default function BookScanner() {
       throw dbErr;
     }
 
-    const savedBook = (inserted as Book | null) ?? { ...book, reading_status: 'want' as const };
+    const savedBook = (inserted as Book | null) ?? { ...book, reading_status: 'wishlist' as const };
     setResult(savedBook);
     setHistory((prev) => [savedBook, ...prev]);
     setStatus('done');

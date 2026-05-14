@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import BookCard from '@/components/BookCard';
 import { Book, ReadingStatus, supabase } from '@/lib/supabase';
 import { normalizeReadingStatus, READING_STATUS_LABELS } from '@/components/StatusBadge';
@@ -51,6 +52,7 @@ function getErrorMessage(error: unknown) {
 }
 
 export default function BookList() {
+  const router = useRouter();
   const [books, setBooks] = useState<Book[]>([]);
   const [statusFilter, setStatusFilter] = useState<'all' | ReadingStatus>('all');
   const [query, setQuery] = useState('');
@@ -416,15 +418,41 @@ export default function BookList() {
                     <p className="truncate text-xs text-zinc-500 dark:text-zinc-400">{book.authors.join(', ')}</p>
                   </div>
                 </Link>
-                {/* ステータス */}
-                <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${
-                  normalizeReadingStatus(book.reading_status) === 'reading' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' :
-                  normalizeReadingStatus(book.reading_status) === 'done' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' :
-                  normalizeReadingStatus(book.reading_status) === 'wishlist' ? 'bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-300' :
-                  'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300'
-                }`}>
-                  {READING_STATUS_LABELS[normalizeReadingStatus(book.reading_status)]}
-                </span>
+                {/* ステータス（プルダウン） */}
+                {book.id ? (
+                  <select
+                    value={normalizeReadingStatus(book.reading_status)}
+                    disabled={updatingId === book.id}
+                    onChange={(event) => updateStatus(book, event.target.value as ReadingStatus)}
+                    onClick={(e) => e.stopPropagation()}
+                    className="shrink-0 rounded-lg border border-zinc-200 bg-white px-1.5 py-1 text-xs text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
+                  >
+                    {(['wishlist', 'want', 'reading', 'done'] as ReadingStatus[]).map((s) => (
+                      <option key={s} value={s}>{READING_STATUS_LABELS[s]}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${
+                    normalizeReadingStatus(book.reading_status) === 'reading' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' :
+                    normalizeReadingStatus(book.reading_status) === 'done' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' :
+                    normalizeReadingStatus(book.reading_status) === 'wishlist' ? 'bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-300' :
+                    'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300'
+                  }`}>
+                    {READING_STATUS_LABELS[normalizeReadingStatus(book.reading_status)]}
+                  </span>
+                )}
+                {/* ハイライト・編集・削除ボタン */}
+                {book.id && (
+                  <div className="flex shrink-0 gap-1">
+                    <Link
+                      href={`/books/${book.id}`}
+                      title="ハイライト"
+                      className="flex h-8 w-8 items-center justify-center rounded-lg text-sm text-zinc-400 transition hover:bg-yellow-50 hover:text-yellow-600 dark:hover:bg-yellow-900/20"
+                    >
+                      📝
+                    </Link>
+                  </div>
+                )}
                 {/* 編集・削除ボタン */}
                 {book.id && (
                   <div className="flex shrink-0 gap-1">
@@ -539,8 +567,15 @@ export default function BookList() {
         /* カード表示 */
         <div className="grid gap-4">
           {filteredBooks.map((book) => (
-            <BookCard
+            <div
               key={book.id ?? `${book.title}-${book.created_at}`}
+              onClick={(e) => {
+                if ((e.target as HTMLElement).closest('button, a, select, input, textarea')) return;
+                if (book.id) router.push(`/books/${book.id}`);
+              }}
+              className={book.id ? 'cursor-pointer' : ''}
+            >
+            <BookCard
               book={book}
               showBuyButtons={normalizeReadingStatus(book.reading_status) === 'wishlist'}
               topActions={
@@ -572,9 +607,9 @@ export default function BookList() {
                   <>
                     <Link
                       href={`/books/${book.id}`}
-                      className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
+                      className="rounded-lg border border-yellow-200 bg-yellow-50 px-3 py-2 text-xs font-medium text-yellow-800 transition hover:bg-yellow-100 dark:border-yellow-900/60 dark:bg-yellow-900/20 dark:text-yellow-200 dark:hover:bg-yellow-900/30"
                     >
-                      詳細
+                      📝 ハイライト
                     </Link>
                     <button
                       type="button"
@@ -689,6 +724,7 @@ export default function BookList() {
                 ) : null
               }
             />
+            </div>
           ))}
         </div>
       )}
