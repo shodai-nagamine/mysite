@@ -86,7 +86,9 @@ export default function BookList() {
   const [isbnSearchMsg, setIsbnSearchMsg] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>('created_at_desc');
   const [highlightSummaries, setHighlightSummaries] = useState<Map<string, HighlightSummary>>(new Map());
-  const [tagFilter, setTagFilter] = useState<string | null>(null);
+  const [tagFilters, setTagFilters] = useState<string[]>([]);
+  const [authorFilter, setAuthorFilter] = useState('');
+  const [publisherFilter, setPublisherFilter] = useState('');
 
   useEffect(() => {
     let mounted = true;
@@ -149,15 +151,43 @@ export default function BookList() {
     return Array.from(set).sort((a, b) => a.localeCompare(b, 'ja'));
   }, [books]);
 
+  const allAuthors = useMemo(() => {
+    const set = new Set<string>();
+    for (const book of books) for (const a of book.authors) if (a) set.add(a);
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'ja'));
+  }, [books]);
+
+  const allPublishers = useMemo(() => {
+    const set = new Set<string>();
+    for (const book of books) if (book.publisher) set.add(book.publisher);
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'ja'));
+  }, [books]);
+
+  function toggleTagFilter(tag: string) {
+    setTagFilters((prev) => prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]);
+  }
+
+  function clearFilters() {
+    setTagFilters([]);
+    setAuthorFilter('');
+    setPublisherFilter('');
+    setStatusFilter('all');
+    setQuery('');
+  }
+
+  const hasActiveFilters = tagFilters.length > 0 || authorFilter !== '' || publisherFilter !== '' || statusFilter !== 'all' || query.trim() !== '';
+
   const filteredBooks = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
 
     const filtered = books.filter((book) => {
       const status = normalizeReadingStatus(book.reading_status);
       if (statusFilter !== 'all' && status !== statusFilter) return false;
-      if (tagFilter && !(book.tags ?? []).includes(tagFilter)) return false;
+      if (tagFilters.length > 0 && !tagFilters.every((t) => (book.tags ?? []).includes(t))) return false;
+      if (authorFilter && !book.authors.includes(authorFilter)) return false;
+      if (publisherFilter && book.publisher !== publisherFilter) return false;
       if (!normalizedQuery) return true;
-      const haystack = [book.title, ...book.authors, ...(book.tags ?? [])].join(' ').toLowerCase();
+      const haystack = [book.title, ...book.authors, book.publisher ?? '', ...(book.tags ?? [])].join(' ').toLowerCase();
       return haystack.includes(normalizedQuery);
     });
 
@@ -177,7 +207,7 @@ export default function BookList() {
           return new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime();
       }
     });
-  }, [books, query, statusFilter, sortKey, highlightSummaries]);
+  }, [books, query, statusFilter, tagFilters, authorFilter, publisherFilter, sortKey, highlightSummaries]);
 
   async function updateStatus(book: Book, readingStatus: ReadingStatus) {
     if (!book.id) return;
@@ -446,22 +476,56 @@ export default function BookList() {
           </div>
         </div>
 
-        <input
-          type="search"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="タイトル・著者・タグで検索"
-          className="w-full rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 outline-none transition placeholder:text-zinc-400 focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:focus:border-zinc-500"
-        />
+        <div className="flex flex-wrap gap-2">
+          <input
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="タイトル・著者・タグで検索"
+            className="min-w-0 flex-1 rounded-xl border border-zinc-200 bg-white px-4 py-2.5 text-sm text-zinc-900 outline-none transition placeholder:text-zinc-400 focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:focus:border-zinc-500"
+          />
+          {allAuthors.length > 0 && (
+            <select
+              value={authorFilter}
+              onChange={(e) => setAuthorFilter(e.target.value)}
+              className={`rounded-xl border px-3 py-2.5 text-sm outline-none transition dark:bg-zinc-900 dark:text-zinc-200 ${
+                authorFilter
+                  ? 'border-indigo-400 bg-indigo-50 text-indigo-800 dark:border-indigo-600 dark:bg-indigo-900/20 dark:text-indigo-300'
+                  : 'border-zinc-200 bg-white text-zinc-700 dark:border-zinc-700'
+              }`}
+            >
+              <option value="">著者: すべて</option>
+              {allAuthors.map((a) => (
+                <option key={a} value={a}>{a}</option>
+              ))}
+            </select>
+          )}
+          {allPublishers.length > 0 && (
+            <select
+              value={publisherFilter}
+              onChange={(e) => setPublisherFilter(e.target.value)}
+              className={`rounded-xl border px-3 py-2.5 text-sm outline-none transition dark:bg-zinc-900 dark:text-zinc-200 ${
+                publisherFilter
+                  ? 'border-indigo-400 bg-indigo-50 text-indigo-800 dark:border-indigo-600 dark:bg-indigo-900/20 dark:text-indigo-300'
+                  : 'border-zinc-200 bg-white text-zinc-700 dark:border-zinc-700'
+              }`}
+            >
+              <option value="">出版社: すべて</option>
+              {allPublishers.map((p) => (
+                <option key={p} value={p}>{p}</option>
+              ))}
+            </select>
+          )}
+        </div>
         {allTags.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
             {allTags.map((tag) => (
               <button
                 key={tag}
                 type="button"
-                onClick={() => setTagFilter(tagFilter === tag ? null : tag)}
+                onClick={() => toggleTagFilter(tag)}
                 className={`rounded-full px-2.5 py-1 text-xs font-medium transition ${
-                  tagFilter === tag
+                  tagFilters.includes(tag)
                     ? 'bg-blue-600 text-white'
                     : 'bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-900/50'
                 }`}
@@ -469,6 +533,20 @@ export default function BookList() {
                 #{tag}
               </button>
             ))}
+          </div>
+        )}
+        {hasActiveFilters && (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-zinc-500 dark:text-zinc-400">
+              {filteredBooks.length}件 / {books.length}件
+            </span>
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="rounded-lg border border-zinc-200 bg-white px-3 py-1 text-xs font-medium text-zinc-600 transition hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+            >
+              ✕ フィルターをクリア
+            </button>
           </div>
         )}
       </div>
@@ -842,9 +920,9 @@ export default function BookList() {
                           <button
                             key={tag}
                             type="button"
-                            onClick={(e) => { e.stopPropagation(); setTagFilter(tagFilter === tag ? null : tag); }}
+                            onClick={(e) => { e.stopPropagation(); toggleTagFilter(tag); }}
                             className={`rounded-full px-2 py-0.5 text-xs font-medium transition ${
-                              tagFilter === tag
+                              tagFilters.includes(tag)
                                 ? 'bg-blue-600 text-white'
                                 : 'bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-300'
                             }`}
