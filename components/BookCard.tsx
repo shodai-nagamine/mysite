@@ -19,6 +19,7 @@ interface BookCardProps {
   topActions?: React.ReactNode;    // 右上に配置するアクション（編集・削除など）
   actionControls?: React.ReactNode; // カード内のアクション（ISBN取得など）
   editForm?: React.ReactNode;
+  footer?: React.ReactNode;        // カード下部の追加コンテンツ
 }
 
 function getPublishedYear(publishedDate?: string | null) {
@@ -32,6 +33,7 @@ export default function BookCard({
   topActions,
   actionControls,
   editForm,
+  footer,
 }: BookCardProps) {
   const publishedYear = getPublishedYear(book.published_date);
   const status = normalizeReadingStatus(book.reading_status);
@@ -65,7 +67,7 @@ export default function BookCard({
       )}
 
       {/* コンテンツ */}
-      <div className={`flex min-w-0 flex-1 flex-col gap-1 overflow-hidden ${topActions ? 'pr-16' : ''}`}>
+      <div className={`flex min-w-0 flex-1 flex-col gap-1 overflow-hidden ${topActions ? 'pr-28' : ''}`}>
 
         {/* ステータス（タイトルの上） */}
         <div className="flex flex-wrap items-center gap-2">
@@ -92,6 +94,9 @@ export default function BookCard({
 
         {/* 編集フォーム */}
         {editForm}
+
+        {/* フッター（ハイライト情報など） */}
+        {footer && <div className="mt-2">{footer}</div>}
 
         {/* メタデータチップ */}
         <div className="mt-2 flex flex-wrap gap-2">

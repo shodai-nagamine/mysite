@@ -8,6 +8,16 @@ import { Book, ReadingStatus, supabase } from '@/lib/supabase';
 import { normalizeReadingStatus, READING_STATUS_LABELS } from '@/components/StatusBadge';
 
 type ViewMode = 'card' | 'list';
+type SortKey = 'created_at_desc' | 'created_at_asc' | 'title_asc' | 'title_desc' | 'highlight_desc';
+type HighlightSummary = { count: number; latestText: string | null };
+
+const SORT_OPTIONS: Array<{ value: SortKey; label: string }> = [
+  { value: 'created_at_desc', label: '登録日（新しい順）' },
+  { value: 'created_at_asc',  label: '登録日（古い順）' },
+  { value: 'title_asc',       label: 'タイトル（昇順）' },
+  { value: 'title_desc',      label: 'タイトル（降順）' },
+  { value: 'highlight_desc',  label: 'ハイライト（多い順）' },
+];
 
 const FILTERS: Array<{ value: 'all' | ReadingStatus; label: string }> = [
   { value: 'all', label: 'すべて' },
@@ -70,6 +80,8 @@ export default function BookList() {
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [searchingIsbnFor, setSearchingIsbnFor] = useState<string | null>(null);
   const [isbnSearchMsg, setIsbnSearchMsg] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
+  const [sortKey, setSortKey] = useState<SortKey>('created_at_desc');
+  const [highlightSummaries, setHighlightSummaries] = useState<Map<string, HighlightSummary>>(new Map());
 
   useEffect(() => {
     let mounted = true;
@@ -102,18 +114,54 @@ export default function BookList() {
     };
   }, []);
 
+  useEffect(() => {
+    const ids = books.map((b) => b.id).filter((id): id is string => Boolean(id));
+    if (ids.length === 0) { setHighlightSummaries(new Map()); return; }
+    supabase
+      .from('highlights')
+      .select('book_id,text,created_at')
+      .in('book_id', ids)
+      .order('created_at', { ascending: false })
+      .then(({ data }) => {
+        const map = new Map<string, HighlightSummary>();
+        for (const h of data ?? []) {
+          const existing = map.get(h.book_id);
+          if (!existing) {
+            map.set(h.book_id, { count: 1, latestText: h.text });
+          } else {
+            map.set(h.book_id, { count: existing.count + 1, latestText: existing.latestText });
+          }
+        }
+        setHighlightSummaries(map);
+      });
+  }, [books]);
+
   const filteredBooks = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
 
-    return books.filter((book) => {
+    const filtered = books.filter((book) => {
       const status = normalizeReadingStatus(book.reading_status);
       if (statusFilter !== 'all' && status !== statusFilter) return false;
       if (!normalizedQuery) return true;
-
       const haystack = [book.title, ...book.authors].join(' ').toLowerCase();
       return haystack.includes(normalizedQuery);
     });
-  }, [books, query, statusFilter]);
+
+    return [...filtered].sort((a, b) => {
+      switch (sortKey) {
+        case 'created_at_asc':
+          return new Date(a.created_at ?? 0).getTime() - new Date(b.created_at ?? 0).getTime();
+        case 'title_asc':
+          return a.title.localeCompare(b.title, 'ja');
+        case 'title_desc':
+          return b.title.localeCompare(a.title, 'ja');
+        case 'highlight_desc':
+          return (highlightSummaries.get(b.id ?? '')?.count ?? 0) - (highlightSummaries.get(a.id ?? '')?.count ?? 0);
+        default:
+          return new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime();
+      }
+    });
+  }, [books, query, statusFilter, sortKey, highlightSummaries]);
 
   async function updateStatus(book: Book, readingStatus: ReadingStatus) {
     if (!book.id) return;
@@ -331,7 +379,7 @@ export default function BookList() {
   return (
     <section className="w-full">
       <div className="mb-6 flex flex-col gap-4">
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap gap-2">
           {FILTERS.map((filter) => (
             <button
@@ -348,24 +396,36 @@ export default function BookList() {
             </button>
           ))}
           </div>
-          {/* 表示切替 */}
-          <div className="flex shrink-0 overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-700">
-            <button
-              type="button"
-              onClick={() => { setViewMode('card'); localStorage.setItem('bookshelf-view', 'card'); }}
-              title="カード表示"
-              className={`px-3 py-2 text-sm transition ${viewMode === 'card' ? 'bg-zinc-900 text-white dark:bg-white dark:text-zinc-900' : 'bg-white text-zinc-500 hover:bg-zinc-50 dark:bg-zinc-900 dark:text-zinc-400'}`}
+          <div className="flex shrink-0 items-center gap-2">
+            {/* ソート */}
+            <select
+              value={sortKey}
+              onChange={(e) => setSortKey(e.target.value as SortKey)}
+              className="rounded-lg border border-zinc-200 bg-white px-2 py-2 text-xs text-zinc-700 outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
             >
-              ▦
-            </button>
-            <button
-              type="button"
-              onClick={() => { setViewMode('list'); localStorage.setItem('bookshelf-view', 'list'); }}
-              title="リスト表示"
-              className={`px-3 py-2 text-sm transition ${viewMode === 'list' ? 'bg-zinc-900 text-white dark:bg-white dark:text-zinc-900' : 'bg-white text-zinc-500 hover:bg-zinc-50 dark:bg-zinc-900 dark:text-zinc-400'}`}
-            >
-              ☰
-            </button>
+              {SORT_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+            {/* 表示切替 */}
+            <div className="flex overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-700">
+              <button
+                type="button"
+                onClick={() => { setViewMode('card'); localStorage.setItem('bookshelf-view', 'card'); }}
+                title="カード表示"
+                className={`px-3 py-2 text-sm transition ${viewMode === 'card' ? 'bg-zinc-900 text-white dark:bg-white dark:text-zinc-900' : 'bg-white text-zinc-500 hover:bg-zinc-50 dark:bg-zinc-900 dark:text-zinc-400'}`}
+              >
+                ▦
+              </button>
+              <button
+                type="button"
+                onClick={() => { setViewMode('list'); localStorage.setItem('bookshelf-view', 'list'); }}
+                title="リスト表示"
+                className={`px-3 py-2 text-sm transition ${viewMode === 'list' ? 'bg-zinc-900 text-white dark:bg-white dark:text-zinc-900' : 'bg-white text-zinc-500 hover:bg-zinc-50 dark:bg-zinc-900 dark:text-zinc-400'}`}
+              >
+                ☰
+              </button>
+            </div>
           </div>
         </div>
 
@@ -581,6 +641,13 @@ export default function BookList() {
               topActions={
                 book.id ? (
                   <>
+                    <Link
+                      href={`/books/${book.id}?highlight=1`}
+                      title="ハイライト"
+                      className="flex h-8 w-8 items-center justify-center rounded-lg border border-yellow-200 bg-yellow-50 text-sm transition hover:bg-yellow-100 dark:border-yellow-900/60 dark:bg-yellow-900/20"
+                    >
+                      📝
+                    </Link>
                     <button
                       type="button"
                       onClick={() => startEdit(book)}
@@ -604,22 +671,14 @@ export default function BookList() {
               }
               actionControls={
                 book.id ? (
-                  <>
-                    <Link
-                      href={`/books/${book.id}?highlight=1`}
-                      className="rounded-lg border border-yellow-200 bg-yellow-50 px-3 py-2 text-xs font-medium text-yellow-800 transition hover:bg-yellow-100 dark:border-yellow-900/60 dark:bg-yellow-900/20 dark:text-yellow-200 dark:hover:bg-yellow-900/30"
-                    >
-                      📝 ハイライト
-                    </Link>
-                    <button
-                      type="button"
-                      onClick={() => refreshMetadataFromIsbn(book)}
-                      disabled={busyAction !== null || !normalizeIsbn(book.isbn)}
-                      className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-medium text-sky-800 transition hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-900/60 dark:bg-sky-900/20 dark:text-sky-200 dark:hover:bg-sky-900/30"
-                    >
-                      {busyAction === `refresh:${book.id}` ? '取得中...' : 'ISBNから書誌情報を取得'}
-                    </button>
-                  </>
+                  <button
+                    type="button"
+                    onClick={() => refreshMetadataFromIsbn(book)}
+                    disabled={busyAction !== null || !normalizeIsbn(book.isbn)}
+                    className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-medium text-sky-800 transition hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-900/60 dark:bg-sky-900/20 dark:text-sky-200 dark:hover:bg-sky-900/30"
+                  >
+                    {busyAction === `refresh:${book.id}` ? '取得中...' : 'ISBNから書誌情報を取得'}
+                  </button>
                 ) : null
               }
               editForm={
@@ -722,6 +781,23 @@ export default function BookList() {
                     </select>
                   </label>
                 ) : null
+              }
+              footer={
+                book.id && highlightSummaries.has(book.id) ? (() => {
+                  const hl = highlightSummaries.get(book.id!)!;
+                  return (
+                    <div className="flex flex-col gap-1 rounded-lg bg-yellow-50 px-3 py-2 dark:bg-yellow-900/10">
+                      <p className="text-xs font-medium text-yellow-700 dark:text-yellow-400">
+                        📌 {hl.count}件のハイライト
+                      </p>
+                      {hl.latestText && (
+                        <p className="line-clamp-2 text-xs text-zinc-600 dark:text-zinc-400">
+                          {hl.latestText}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })() : null
               }
             />
             </div>
