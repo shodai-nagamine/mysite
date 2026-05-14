@@ -32,7 +32,7 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // 未ログインで保護ページにアクセス → ログインページへ
-  if (!user && pathname !== '/login' && !pathname.startsWith('/auth/')) {
+  if (!user && pathname !== '/login' && !pathname.startsWith('/auth/') && !pathname.startsWith('/api/sync')) {
     const url = request.nextUrl.clone();
     url.pathname = '/login';
     return NextResponse.redirect(url);
