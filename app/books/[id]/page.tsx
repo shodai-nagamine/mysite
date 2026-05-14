@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { supabase, Book, ReadingStatus } from '@/lib/supabase';
 import BookCard from '@/components/BookCard';
@@ -37,6 +37,8 @@ function toEditForm(book: Book): EditForm {
 export default function BookDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const autoOpenHighlight = searchParams.get('highlight') === '1';
   const [book, setBook] = useState<Book | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -463,6 +465,7 @@ export default function BookDetailPage() {
           <HighlightScanner
             bookId={id}
             onSaved={() => setHighlightRefreshKey((k) => k + 1)}
+            autoOpen={autoOpenHighlight}
           />
           <HighlightList bookId={id} refreshKey={highlightRefreshKey} />
         </section>

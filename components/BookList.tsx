@@ -445,7 +445,7 @@ export default function BookList() {
                 {book.id && (
                   <div className="flex shrink-0 gap-1">
                     <Link
-                      href={`/books/${book.id}`}
+                      href={`/books/${book.id}?highlight=1`}
                       title="ハイライト"
                       className="flex h-8 w-8 items-center justify-center rounded-lg text-sm text-zinc-400 transition hover:bg-yellow-50 hover:text-yellow-600 dark:hover:bg-yellow-900/20"
                     >
@@ -606,7 +606,7 @@ export default function BookList() {
                 book.id ? (
                   <>
                     <Link
-                      href={`/books/${book.id}`}
+                      href={`/books/${book.id}?highlight=1`}
                       className="rounded-lg border border-yellow-200 bg-yellow-50 px-3 py-2 text-xs font-medium text-yellow-800 transition hover:bg-yellow-100 dark:border-yellow-900/60 dark:bg-yellow-900/20 dark:text-yellow-200 dark:hover:bg-yellow-900/30"
                     >
                       📝 ハイライト

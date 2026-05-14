@@ -8,6 +8,7 @@ const supabase = createClient();
 interface Props {
   bookId: string;
   onSaved: () => void;
+  autoOpen?: boolean;
 }
 
 type Phase = 'idle' | 'camera' | 'extracting' | 'selecting' | 'saving' | 'done' | 'error';
@@ -18,7 +19,7 @@ async function imageToBase64(canvas: HTMLCanvasElement): Promise<{ base64: strin
   return { base64, mimeType: 'image/jpeg' };
 }
 
-export default function HighlightScanner({ bookId, onSaved }: Props) {
+export default function HighlightScanner({ bookId, onSaved, autoOpen = false }: Props) {
   const [open, setOpen] = useState(false);
   const [phase, setPhase] = useState<Phase>('idle');
   const [errorMsg, setErrorMsg] = useState('');
@@ -64,6 +65,15 @@ export default function HighlightScanner({ bookId, onSaved }: Props) {
 
   // クリーンアップ
   useEffect(() => () => stopCamera(), [stopCamera]);
+
+  // autoOpen: マウント時に自動でカメラを起動
+  useEffect(() => {
+    if (autoOpen) {
+      setOpen(true);
+      startCamera();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // 撮影 → OCR
   const capture = useCallback(async () => {
